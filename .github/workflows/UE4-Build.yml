@@ -1,0 +1,71 @@
+name: UE4 Minimal Engine + Project Build
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+
+      # 1️⃣ Free Disk Space
+      - name: Free disk space
+        shell: cmd
+        run: |
+          echo Freeing disk space...
+          rd /s /q "C:\Program Files (x86)\Microsoft Visual Studio\2022\Enterprise" 2>nul
+          rd /s /q "C:\Program Files\dotnet" 2>nul
+          rd /s /q "C:\ProgramData\Chocolatey" 2>nul
+          del /f /s /q C:\*.tmp 2>nul
+
+      # 2️⃣ Checkout UE4.27 Source
+      - name: Checkout UE4
+        uses: actions/checkout@v4
+        with:
+          repository: AlexMercer-MA/UnrealEngine-4.27
+          path: UE4
+          lfs: true
+
+      # 3️⃣ Minimal Setup (Win64 only)
+      - name: Setup UE4 minimal
+        shell: cmd
+        run: |
+          cd UE4
+          Setup.bat -exclude=Mac -exclude=Linux -exclude=Android -exclude=IOS -exclude=TVOS -exclude=WinRT -exclude=HTML5
+
+      # 4️⃣ Generate Project Files
+      - name: Generate project files
+        shell: cmd
+        run: |
+          cd UE4
+          GenerateProjectFiles.bat
+
+      # 5️⃣ Build Minimal Engine Target (No Editor)
+      - name: Build UE4Game
+        shell: cmd
+        run: |
+          cd UE4
+          Engine\Build\BatchFiles\Build.bat UE4Game Win64 Development -NoDebugInfo
+
+      # 6️⃣ Delete heavy intermediates
+      - name: Cleanup engine intermediates
+        shell: cmd
+        run: |
+          rd /s /q UE4\Engine\Intermediate 2>nul
+
+      # 7️⃣ Checkout Your Project
+      - name: Checkout Project
+        uses: actions/checkout@v4
+        with:
+          repository: ViteStudio-Tech/ueVite-ThirdPersonGAS-Example
+          path: Project
+          lfs: true
+
+      # 8️⃣ Build Game Project (Game target only)
+      - name: Build ActionRPG Game
+        shell: cmd
+        run: |
+          UE4\Engine\Build\BatchFiles\Build.bat ActionRPG Win64 Development ^
+          -Project="%CD%\Project\ActionRPG - Vite\ActionRPG.uproject" ^
+          -NoDebugInfo
