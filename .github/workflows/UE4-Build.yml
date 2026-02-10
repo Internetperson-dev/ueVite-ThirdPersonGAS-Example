@@ -7,113 +7,91 @@ jobs:
   build:
     runs-on: windows-latest
 
-    env:
-      UE4_SHORT: a
-      PROJECT_SHORT: p
-
     steps:
 
-    # -------------------------------------------------
-    # 1️⃣ Enable Long Paths
-    # -------------------------------------------------
-    - name: Enable Windows long paths
-      shell: powershell
-      run: |
-        New-ItemProperty `
-          -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" `
-          -Name "LongPathsEnabled" `
-          -Value 1 `
-          -PropertyType DWORD `
-          -Force
+      # -------------------------------------------------
+      # 1️⃣ Enable Long Paths
+      # -------------------------------------------------
+      - name: Enable Windows long paths
+        shell: powershell
+        run: |
+          New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" `
+          -Name "LongPathsEnabled" -Value 1 -PropertyType DWORD -Force
 
-    - name: Enable git long paths
-      run: git config --system core.longpaths true
+      - name: Enable git long paths
+        run: git config --system core.longpaths true
 
-    # -------------------------------------------------
-    # 2️⃣ Free Some Disk Space (Safe Only)
-    # -------------------------------------------------
-    - name: Free disk space
-      shell: cmd
-      run: |
-        rd /s /q "C:\Program Files (x86)\Microsoft Visual Studio\2022\Enterprise" 2>nul
-        rd /s /q "C:\ProgramData\Chocolatey" 2>nul
-        del /f /s /q C:\*.tmp 2>nul
+      # -------------------------------------------------
+      # 2️⃣ Checkout UE4 (Ultra Short Path)
+      # -------------------------------------------------
+      - name: Checkout UE4.27
+        uses: actions/checkout@v4
+        with:
+          repository: AlexMercer-MA/UnrealEngine-4.27
+          path: a
+          lfs: true
 
-    # -------------------------------------------------
-    # 3️⃣ Checkout UE4 (Ultra Short Path)
-    # -------------------------------------------------
-    - name: Checkout UE4.27
-      uses: actions/checkout@v4
-      with:
-        repository: AlexMercer-MA/UnrealEngine-4.27
-        path: a
-        lfs: true
+      # -------------------------------------------------
+      # 3️⃣ Map to Drive Letter (Fix MAX_PATH)
+      # -------------------------------------------------
+      - name: Map UE4 to X drive
+        shell: cmd
+        run: subst X: %GITHUB_WORKSPACE%\a
 
-    # -------------------------------------------------
-    # 4️⃣ Map to Drive Letter (CRITICAL FIX)
-    # -------------------------------------------------
-    - name: Map UE4 to X:
-      shell: cmd
-      run: |
-        subst X: %GITHUB_WORKSPACE%\a
+      # -------------------------------------------------
+      # 4️⃣ Restore UE4 Cache
+      # -------------------------------------------------
+      - name: Restore UE4 Cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            a/Engine/Binaries
+            a/Engine/Intermediate
+            a/Engine/DerivedDataCache
+          key: ue4-${{ github.sha }}
+          restore-keys: ue4-
 
-    # -------------------------------------------------
-    # 5️⃣ Restore Engine Cache
-    # -------------------------------------------------
-    - name: Restore UE4 Cache
-      uses: actions/cache@v4
-      with:
-        path: |
-          a/Engine/Binaries
-          a/Engine/Intermediate
-          a/Engine/DerivedDataCache
-        key: ue4-${{ github.sha }}
-        restore-keys: |
-          ue4-
+      # -------------------------------------------------
+      # 5️⃣ Setup UE4 Dependencies
+      # -------------------------------------------------
+      - name: Setup UE4
+        shell: cmd
+        run: |
+          cd /d X:\
+          Setup.bat -exclude=Mac -exclude=Linux -exclude=Android -exclude=IOS -exclude=TVOS -exclude=WinRT -exclude=HTML5
 
-    # -------------------------------------------------
-    # 6️⃣ Setup UE4 (Dependencies)
-    # -------------------------------------------------
-    - name: Setup UE4 (Win64 only)
-      shell: cmd
-      run: |
-        cd /d X:\
-        Setup.bat -exclude=Mac -exclude=Linux -exclude=Android -exclude=IOS -exclude=TVOS -exclude=WinRT -exclude=HTML5
+      # -------------------------------------------------
+      # 6️⃣ Generate Project Files
+      # -------------------------------------------------
+      - name: Generate Project Files
+        shell: cmd
+        run: |
+          cd /d X:\
+          GenerateProjectFiles.bat
 
-    # -------------------------------------------------
-    # 7️⃣ Generate Project Files
-    # -------------------------------------------------
-    - name: Generate Project Files
-      shell: cmd
-      run: |
-        cd /d X:\
-        GenerateProjectFiles.bat
+      # -------------------------------------------------
+      # 7️⃣ Build UE4Game
+      # -------------------------------------------------
+      - name: Build UE4Game
+        shell: cmd
+        run: |
+          cd /d X:\
+          Engine\Build\BatchFiles\Build.bat UE4Game Win64 Development -NoDebugInfo -NoHotReload
 
-    # -------------------------------------------------
-    # 8️⃣ Build Minimal Engine Target
-    # -------------------------------------------------
-    - name: Build UE4Game
-      shell: cmd
-      run: |
-        cd /d X:\
-        Engine\Build\BatchFiles\Build.bat UE4Game Win64 Development -NoDebugInfo -NoHotReload
+      # -------------------------------------------------
+      # 8️⃣ Checkout Project
+      # -------------------------------------------------
+      - name: Checkout Project
+        uses: actions/checkout@v4
+        with:
+          repository: ViteStudio-Tech/ueVite-ThirdPersonGAS-Example
+          path: p
+          lfs: true
 
-    # -------------------------------------------------
-    # 9️⃣ Checkout Project (Short Path)
-    # -------------------------------------------------
-    - name: Checkout Project
-      uses: actions/checkout@v4
-      with:
-        repository: ViteStudio-Tech/ueVite-ThirdPersonGAS-Example
-        path: p
-        lfs: true
-
-    # -------------------------------------------------
-    # 🔟 Build Project
-    # -------------------------------------------------
-    - name: Build Project Game Target
-      shell: cmd
-      run: |
-        "X:\Engine\Build\BatchFiles\Build.bat" ActionRPG Win64 Development ^
-        -Project="%GITHUB_WORKSPACE%\p\ActionRPG - Vite\ActionRPG.uproject" ^
-        -NoDebugInfo -NoHotReload
+      # -------------------------------------------------
+      # 9️⃣ Build Project
+      # -------------------------------------------------
+      - name: Build Project Game Target
+        shell: cmd
+        run: |
+          X:\Engine\Build\BatchFiles\Build.bat ActionRPG Win64 Development -Project="%GITHUB_WORKSPACE%\p\ActionRPG - Vite\ActionRPG.uproject" -NoDebugInfo -NoHotReload
