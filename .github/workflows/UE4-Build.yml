@@ -9,7 +9,7 @@ jobs:
 
     steps:
 
-      # 1️⃣ Enable Long Paths
+      # Enable Long Paths
       - name: Enable Windows long paths
         shell: powershell
         run: |
@@ -19,7 +19,7 @@ jobs:
       - name: Enable git long paths
         run: git config --system core.longpaths true
 
-      # 2️⃣ Checkout UE4
+      # Checkout UE4
       - name: Checkout UE4.27
         uses: actions/checkout@v4
         with:
@@ -27,12 +27,12 @@ jobs:
           path: a
           lfs: true
 
-      # 3️⃣ Map UE4 to drive X:
+      # Map to X: drive
       - name: Map UE4 to X drive
         shell: cmd
         run: subst X: %GITHUB_WORKSPACE%\a
 
-      # 4️⃣ Restore UE4 Cache
+      # ✅ Fixed cache step
       - name: Restore UE4 Cache
         uses: actions/cache@v4
         with:
@@ -44,28 +44,28 @@ jobs:
           restore-keys:
             - ue4-
 
-      # 5️⃣ Setup UE4 Dependencies
+      # Setup UE4 dependencies
       - name: Setup UE4
         shell: cmd
         run: |
           cd /d X:\
           Setup.bat -exclude=Mac -exclude=Linux -exclude=Android -exclude=IOS -exclude=TVOS -exclude=WinRT -exclude=HTML5
 
-      # 6️⃣ Generate Project Files
+      # Generate Project Files
       - name: Generate Project Files
         shell: cmd
         run: |
           cd /d X:\
           GenerateProjectFiles.bat
 
-      # 7️⃣ Build UE4Game
+      # Build UE4Game
       - name: Build UE4Game
         shell: cmd
         run: |
           cd /d X:\
           Engine\Build\BatchFiles\Build.bat UE4Game Win64 Development -NoDebugInfo -NoHotReload
 
-      # 8️⃣ Checkout Project
+      # Checkout Project
       - name: Checkout Project
         uses: actions/checkout@v4
         with:
@@ -73,7 +73,7 @@ jobs:
           path: p
           lfs: true
 
-      # 9️⃣ Build Project
+      # Build Project
       - name: Build Project Game Target
         shell: cmd
         run: |
