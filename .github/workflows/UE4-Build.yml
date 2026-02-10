@@ -7,12 +7,16 @@ jobs:
   build:
     runs-on: windows-latest
 
+    env:
+      UE4_PATH: ${{ github.workspace }}\ue4
+      PROJECT_PATH: ${{ github.workspace }}\project
+
     steps:
 
     # -------------------------------------------------
-    # 1️⃣ Enable Windows Long Paths
+    # 1️⃣ Enable Windows + Git Long Paths
     # -------------------------------------------------
-    - name: Enable long paths (Windows)
+    - name: Enable Windows long paths
       shell: powershell
       run: |
         New-ItemProperty `
@@ -26,40 +30,33 @@ jobs:
       run: git config --system core.longpaths true
 
     # -------------------------------------------------
-    # 2️⃣ Free as much disk space as possible
+    # 2️⃣ Free Disk Space (Safe Deletions Only)
     # -------------------------------------------------
     - name: Free disk space
       shell: cmd
       run: |
         echo Freeing disk space...
         rd /s /q "C:\Program Files (x86)\Microsoft Visual Studio\2022\Enterprise" 2>nul
-        rd /s /q "C:\Program Files\dotnet" 2>nul
         rd /s /q "C:\ProgramData\Chocolatey" 2>nul
         del /f /s /q C:\*.tmp 2>nul
 
     # -------------------------------------------------
-    # 3️⃣ Checkout UE4 Source
+    # 3️⃣ Checkout UE4 Source (SHORT PATH)
     # -------------------------------------------------
     - name: Checkout UE4.27 Source
       uses: actions/checkout@v4
       with:
         repository: AlexMercer-MA/UnrealEngine-4.27
-        path: UE4
+        path: ue4
         lfs: true
-
-    # Move engine to short root path to avoid MAX_PATH
-    - name: Move UE4 to C:\UE4
-      shell: cmd
-      run: |
-        move UE4 C:\UE4
 
     # -------------------------------------------------
     # 4️⃣ Minimal Setup (Win64 only)
     # -------------------------------------------------
-    - name: Setup UE4 minimal (Win64 only)
+    - name: Setup UE4 (Win64 only)
       shell: cmd
       run: |
-        cd C:\UE4
+        cd %UE4_PATH%
         Setup.bat -exclude=Mac -exclude=Linux -exclude=Android -exclude=IOS -exclude=TVOS -exclude=WinRT -exclude=HTML5
 
     # -------------------------------------------------
@@ -68,7 +65,7 @@ jobs:
     - name: Generate Project Files
       shell: cmd
       run: |
-        cd C:\UE4
+        cd %UE4_PATH%
         GenerateProjectFiles.bat
 
     # -------------------------------------------------
@@ -77,31 +74,25 @@ jobs:
     - name: Build UE4Game (Development Win64)
       shell: cmd
       run: |
-        cd C:\UE4
+        cd %UE4_PATH%
         Engine\Build\BatchFiles\Build.bat UE4Game Win64 Development -NoDebugInfo -NoHotReload
 
-    # Optional cleanup to reduce disk before project build
-    - name: Cleanup Engine Intermediate
-      shell: cmd
-      run: |
-        rd /s /q C:\UE4\Engine\Intermediate 2>nul
-
     # -------------------------------------------------
-    # 7️⃣ Checkout Your Project
+    # 7️⃣ Checkout Your Project (SHORT PATH)
     # -------------------------------------------------
     - name: Checkout Project
       uses: actions/checkout@v4
       with:
         repository: ViteStudio-Tech/ueVite-ThirdPersonGAS-Example
-        path: Project
+        path: project
         lfs: true
 
     # -------------------------------------------------
-    # 8️⃣ Build Project (Game target only)
+    # 8️⃣ Build Project (Game Target Only)
     # -------------------------------------------------
     - name: Build ActionRPG Game Target
       shell: cmd
       run: |
-        C:\UE4\Engine\Build\BatchFiles\Build.bat ActionRPG Win64 Development ^
-        -Project="%CD%\Project\ActionRPG - Vite\ActionRPG.uproject" ^
+        "%UE4_PATH%\Engine\Build\BatchFiles\Build.bat" ActionRPG Win64 Development ^
+        -Project="%PROJECT_PATH%\ActionRPG - Vite\ActionRPG.uproject" ^
         -NoDebugInfo -NoHotReload
