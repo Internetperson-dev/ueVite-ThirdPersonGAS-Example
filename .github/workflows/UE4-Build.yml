@@ -30,7 +30,8 @@ jobs:
 
       - name: Map UE4 to drive X
         shell: cmd
-        run: subst X: %GITHUB_WORKSPACE%\a
+        run: |
+          subst X: %GITHUB_WORKSPACE%\a
 
       - name: Setup UE4
         shell: cmd
