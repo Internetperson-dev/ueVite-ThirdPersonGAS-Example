@@ -1,41 +1,11 @@
-name: UE4 Build Clean
+name: Test Workflow
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
 
 jobs:
-  build:
+  test:
     runs-on: windows-latest
-
     steps:
-      - name: Checkout UE4
-        uses: actions/checkout@v4
-        with:
-          repository: AlexMercer-MA/UnrealEngine-4.27
-          path: a
-          lfs: true
-
-      - name: Map drive
-        shell: cmd
-        run: subst X: %GITHUB_WORKSPACE%\a
-
-      - name: Setup UE4
-        shell: cmd
-        run: |
-          cd /d X:\
-          Setup.bat -exclude=Mac -exclude=Linux -exclude=Android -exclude=IOS -exclude=TVOS -exclude=WinRT -exclude=HTML5
-
-      - name: Generate Project Files
-        shell: cmd
-        run: |
-          cd /d X:\
-          GenerateProjectFiles.bat
-
-      - name: Build UE4Game
-        shell: cmd
-        run: |
-          cd /d X:\
-          Engine\Build\BatchFiles\Build.bat UE4Game Win64 Development -NoDebugInfo -NoHotReload
+      - name: Hello
+        run: echo Hello World
