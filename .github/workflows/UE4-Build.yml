@@ -2,8 +2,7 @@ name: UE4 Build
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
@@ -12,21 +11,14 @@ jobs:
 
     steps:
 
-    # -------------------------------------------------
-    # Enable long paths (Windows + Git)
-    # -------------------------------------------------
     - name: Enable Windows long paths
       shell: powershell
       run: |
-        New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" `
-          -Name "LongPathsEnabled" -Value 1 -PropertyType DWORD -Force
+        New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" -Name "LongPathsEnabled" -Value 1 -PropertyType DWORD -Force
 
     - name: Enable git long paths
       run: git config --system core.longpaths true
 
-    # -------------------------------------------------
-    # Checkout UE4 Source (your fork)
-    # -------------------------------------------------
     - name: Checkout UE4
       uses: actions/checkout@v4
       with:
@@ -34,72 +26,34 @@ jobs:
         path: a
         lfs: true
 
-    # -------------------------------------------------
-    # Patch UE4 to allow VS2022 (windows-latest)
-    # -------------------------------------------------
     - name: Patch UE4 for VS2022
       shell: powershell
       run: |
         $file = "a\Engine\Source\Programs\UnrealBuildTool\Platform\Windows\WindowsPlatformCompilerSetup.cs"
-        (Get-Content $file) `
-          -replace 'MaximumVisualStudioVersion = VisualStudioVersion\.VS2019;', 'MaximumVisualStudioVersion = VisualStudioVersion.Latest;' `
-          -replace 'throw new BuildException\(.+?\);', '// Disabled compiler version check for CI' `
-          | Set-Content $file
+        (Get-Content $file) -replace "MaximumVisualStudioVersion = VisualStudioVersion.VS2019;", "MaximumVisualStudioVersion = VisualStudioVersion.Latest;" | Set-Content $file
 
-    # -------------------------------------------------
-    # Map engine to X: drive (avoid path length issues)
-    # -------------------------------------------------
     - name: Map UE4 to drive X
       shell: cmd
       run: subst X: %GITHUB_WORKSPACE%\a
 
-    # -------------------------------------------------
-    # Cache GitDependencies (6.5GB download)
-    # -------------------------------------------------
     - name: Cache UE4 Dependencies
       uses: actions/cache@v4
       with:
         path: a\.git\ue4-gitdeps
         key: ue4-gitdeps-4.27
 
-    # -------------------------------------------------
-    # Download Dependencies (no prereq installer)
-    # -------------------------------------------------
     - name: Sync UE4 Dependencies
       shell: cmd
-      run: |
-        cd /d X:\
-        Engine\Binaries\DotNET\GitDependencies.exe ^
-          --exclude=Mac ^
-          --exclude=Linux ^
-          --exclude=Android ^
-          --exclude=IOS ^
-          --exclude=TVOS ^
-          --exclude=WinRT ^
-          --exclude=HTML5 ^
-          --threads=16
+      run: cd /d X:\ && Engine\Binaries\DotNET\GitDependencies.exe --exclude=Mac --exclude=Linux --exclude=Android --exclude=IOS --exclude=TVOS --exclude=WinRT --exclude=HTML5 --threads=16
 
-    # -------------------------------------------------
-    # Generate project files
-    # -------------------------------------------------
     - name: Generate Project Files
       shell: cmd
-      run: |
-        cd /d X:\
-        GenerateProjectFiles.bat
+      run: cd /d X:\ && GenerateProjectFiles.bat
 
-    # -------------------------------------------------
-    # Build Engine (Game target only, no Editor)
-    # -------------------------------------------------
     - name: Build UE4Game
       shell: cmd
-      run: |
-        cd /d X:\
-        Engine\Build\BatchFiles\Build.bat UE4Game Win64 Development -NoDebugInfo -NoHotReload
+      run: cd /d X:\ && Engine\Build\BatchFiles\Build.bat UE4Game Win64 Development -NoDebugInfo -NoHotReload
 
-    # -------------------------------------------------
-    # Checkout Your Project
-    # -------------------------------------------------
     - name: Checkout Project
       uses: actions/checkout@v4
       with:
@@ -107,12 +61,6 @@ jobs:
         path: p
         lfs: true
 
-    # -------------------------------------------------
-    # Build Your Project
-    # -------------------------------------------------
     - name: Build Project
       shell: cmd
-      run: |
-        X:\Engine\Build\BatchFiles\Build.bat ActionRPG Win64 Development ^
-        -Project="%GITHUB_WORKSPACE%\p\ActionRPG - Vite\ActionRPG.uproject" ^
-        -NoDebugInfo -NoHotReload
+      run: X:\Engine\Build\BatchFiles\Build.bat ActionRPG Win64 Development -Project="%GITHUB_WORKSPACE%\p\ActionRPG - Vite\ActionRPG.uproject" -NoDebugInfo -NoHotReload
