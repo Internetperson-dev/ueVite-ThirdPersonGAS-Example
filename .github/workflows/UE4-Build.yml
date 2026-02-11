@@ -37,11 +37,13 @@ jobs:
         shell: powershell
         run: Get-PSDrive -PSProvider FileSystem
 
-      - name: Setup UE4 (Skip Prereqs)
+
+      - name: Sync UE4 Dependencies (No Prereqs)
         shell: cmd
         run: |
           cd /d X:\
-          Setup.bat -exclude=Mac -exclude=Linux -exclude=Android -exclude=IOS -exclude=TVOS -exclude=WinRT -exclude=HTML5 -SkipBuildPatchPrereq
+          Engine\Binaries\DotNET\GitDependencies.exe --exclude=Mac --exclude=Linux --exclude=Android --exclude=IOS --exclude=TVOS --exclude=WinRT --exclude=HTML5 --threads=8
+
 
       - name: Print Disk Space After Setup
         shell: powershell
