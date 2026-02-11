@@ -7,23 +7,25 @@ on:
 
 jobs:
   build:
-    runs-on: windows-2019   # VS2019 installed
+    runs-on: windows-2019
 
     steps:
-    # -------------------------------
+    # --------------------------------
     # Enable Windows long paths
-    # -------------------------------
+    # --------------------------------
     - name: Enable Windows long paths
       shell: powershell
       run: |
         New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" `
           -Name "LongPathsEnabled" -Value 1 -PropertyType DWORD -Force
+
     - name: Enable git long paths
+      shell: powershell
       run: git config --system core.longpaths true
 
-    # -------------------------------
+    # --------------------------------
     # Checkout UE4
-    # -------------------------------
+    # --------------------------------
     - name: Checkout UE4
       uses: actions/checkout@v4
       with:
@@ -32,43 +34,44 @@ jobs:
         lfs: true
         fetch-depth: 1
 
-    # -------------------------------
-    # Map UE4 to drive X
-    # -------------------------------
+    # --------------------------------
+    # Map UE4 to drive X (FIXED YAML)
+    # --------------------------------
     - name: Map UE4 to drive X
       shell: cmd
-      run: subst X: %GITHUB_WORKSPACE%\a
+      run: |
+        subst X: "%GITHUB_WORKSPACE%\a"
 
-    # -------------------------------
+    # --------------------------------
     # Cache UE4 Dependencies
-    # -------------------------------
+    # --------------------------------
     - name: Cache UE4 Dependencies
       uses: actions/cache@v4
       with:
         path: a\.git\ue4-gitdeps
         key: ue4-gitdeps-4.27
 
-    # -------------------------------
+    # --------------------------------
     # Sync UE4 Dependencies
-    # -------------------------------
+    # --------------------------------
     - name: Sync UE4 Dependencies
       shell: cmd
       run: |
         cd /d X:\
         Engine\Binaries\DotNET\GitDependencies.exe --exclude=Mac --exclude=Linux --exclude=Android --exclude=IOS --exclude=TVOS --exclude=WinRT --exclude=HTML5 --threads=16
 
-    # -------------------------------
+    # --------------------------------
     # Generate Project Files
-    # -------------------------------
+    # --------------------------------
     - name: Generate Project Files
       shell: cmd
       run: |
         cd /d X:\
         GenerateProjectFiles.bat
 
-    # -------------------------------
-    # Checkout Your Project
-    # -------------------------------
+    # --------------------------------
+    # Checkout Project
+    # --------------------------------
     - name: Checkout Project
       uses: actions/checkout@v4
       with:
@@ -76,50 +79,68 @@ jobs:
         path: p
         lfs: true
 
-    # -------------------------------
+    # --------------------------------
     # Scan .uproject for enabled plugins
-    # -------------------------------
+    # --------------------------------
     - name: Get enabled plugins
       shell: powershell
       run: |
         $uproject = "$env:GITHUB_WORKSPACE\p\ActionRPG - Vite\ActionRPG.uproject"
         Write-Host "Scanning $uproject for enabled plugins..."
+
         $json = Get-Content $uproject | ConvertFrom-Json
-        $enabledPlugins = $json.Plugins | Where-Object { $_.Enabled -eq $true } | ForEach-Object {
-            $pluginPathEngine = Join-Path "X:\Engine\Plugins" $_.Name
-            $pluginPathProject = Join-Path "$env:GITHUB_WORKSPACE\p\Plugins" $_.Name
-            if (Test-Path $pluginPathEngine -or Test-Path $pluginPathProject) {
-                '-Plugin="'+$_.Name+'"'
-            } else {
-                Write-Host "Skipping missing plugin: $($_.Name)"
+
+        $enabledPlugins = @()
+
+        foreach ($plugin in $json.Plugins) {
+            if ($plugin.Enabled -eq $true) {
+                $enginePath = "X:\Engine\Plugins\$($plugin.Name)"
+                $projectPath = "$env:GITHUB_WORKSPACE\p\Plugins\$($plugin.Name)"
+
+                if (Test-Path $enginePath -or Test-Path $projectPath) {
+                    $enabledPlugins += "-Plugin=`"$($plugin.Name)`""
+                } else {
+                    Write-Host "Skipping missing plugin: $($plugin.Name)"
+                }
             }
         }
-        $pluginArgsString = $enabledPlugins -join ' '
-        Write-Host "Enabled plugins: $pluginArgsString"
-        Set-Content -Path "$env:GITHUB_WORKSPACE\plugin_args.txt" -Value $pluginArgsString
 
-    # -------------------------------
-    # Build UE4Editor with only used plugins
-    # -------------------------------
+        $pluginArgs = $enabledPlugins -join " "
+        Write-Host "Enabled plugins: $pluginArgs"
+
+        Set-Content "$env:GITHUB_WORKSPACE\plugin_args.txt" $pluginArgs
+
+    # --------------------------------
+    # Build UE4Editor
+    # --------------------------------
     - name: Build UE4Editor
       shell: powershell
       run: |
         $pluginArgs = Get-Content "$env:GITHUB_WORKSPACE\plugin_args.txt"
-        if ([string]::IsNullOrEmpty($pluginArgs)) {
-            Write-Host "No plugins to build UE4Editor with, building minimal engine..."
-            $pluginArgs = ""
-        }
-        Start-Process -NoNewWindow -Wait -FilePath "X:\Engine\Build\BatchFiles\Build.bat" `
-          -ArgumentList "UE4Editor Win64 Development $pluginArgs -NoDebugInfo -NoHotReload"
+        Write-Host "Building UE4Editor with: $pluginArgs"
 
-    # -------------------------------
-    # Build Project with used plugins
-    # -------------------------------
+        & "X:\Engine\Build\BatchFiles\Build.bat" `
+          UE4Editor Win64 Development `
+          $pluginArgs `
+          -NoDebugInfo -NoHotReload
+
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+    # --------------------------------
+    # Build Project
+    # --------------------------------
     - name: Build Project
       shell: powershell
       run: |
         $pluginArgs = Get-Content "$env:GITHUB_WORKSPACE\plugin_args.txt"
         $uproject = "$env:GITHUB_WORKSPACE\p\ActionRPG - Vite\ActionRPG.uproject"
-        Write-Host "Building project with plugins: $pluginArgs"
-        Start-Process -NoNewWindow -Wait -FilePath "X:\Engine\Build\BatchFiles\Build.bat" `
-          -ArgumentList "ActionRPG Win64 Development -Project=`"$uproject`" $pluginArgs -NoDebugInfo -NoHotReload"
+
+        Write-Host "Building project with: $pluginArgs"
+
+        & "X:\Engine\Build\BatchFiles\Build.bat" `
+          ActionRPG Win64 Development `
+          -Project="$uproject" `
+          $pluginArgs `
+          -NoDebugInfo -NoHotReload
+
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
