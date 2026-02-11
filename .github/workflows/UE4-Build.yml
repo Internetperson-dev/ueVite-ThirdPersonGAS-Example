@@ -1,4 +1,4 @@
-name: UE4 Build
+name: UE4 Minimal Build
 
 on:
   push:
@@ -32,32 +32,32 @@ jobs:
       uses: actions/checkout@v4
       with:
         repository: AlexMercer-MA/UnrealEngine-4.27
-        path: a
+        path: ue
         lfs: true
         fetch-depth: 1
 
 
     # -------------------------------------------------
-    # Map UE4 folder to drive X:
+    # Map UE4 to drive X: (avoid long path issues)
     # -------------------------------------------------
     - name: Map UE4 to drive X
       shell: cmd
       run: |
-        subst X: "%GITHUB_WORKSPACE%\a"
+        subst X: "%GITHUB_WORKSPACE%\ue"
 
 
     # -------------------------------------------------
-    # Cache UE4 GitDependencies
+    # Cache GitDependencies
     # -------------------------------------------------
     - name: Cache UE4 Dependencies
       uses: actions/cache@v4
       with:
-        path: a\.git\ue4-gitdeps
+        path: ue\.git\ue4-gitdeps
         key: ue4-gitdeps-4.27
 
 
     # -------------------------------------------------
-    # Sync UE4 Dependencies
+    # Sync UE4 Dependencies (Windows only)
     # -------------------------------------------------
     - name: Sync UE4 Dependencies
       shell: cmd
@@ -85,93 +85,39 @@ jobs:
 
 
     # -------------------------------------------------
-    # Checkout Your Game Project
+    # Checkout Game Project
     # -------------------------------------------------
     - name: Checkout Project
       uses: actions/checkout@v4
       with:
         repository: ViteStudio-Tech/ueVite-ThirdPersonGAS-Example
-        path: p
+        path: project
         lfs: true
 
 
     # -------------------------------------------------
-    # Scan .uproject for enabled plugins
+    # Build Game Target ONLY (Minimal Engine Build)
     # -------------------------------------------------
-    - name: Get enabled plugins
+    - name: Build Game
       shell: powershell
       run: |
-        $uproject = "$env:GITHUB_WORKSPACE\p\ActionRPG - Vite\ActionRPG.uproject"
-        Write-Host "Scanning $uproject for enabled plugins..."
+        $uproject = "$env:GITHUB_WORKSPACE\project\ActionRPG - Vite\ActionRPG.uproject"
 
         if (!(Test-Path $uproject)) {
             Write-Error "UPROJECT NOT FOUND!"
             exit 1
         }
 
-        $json = Get-Content $uproject | ConvertFrom-Json
-        $enabledPlugins = @()
-
-        foreach ($plugin in $json.Plugins) {
-
-            if ($plugin.Enabled -eq $true) {
-
-                $enginePath  = "X:\Engine\Plugins\$($plugin.Name)"
-                $projectPath = "$env:GITHUB_WORKSPACE\p\Plugins\$($plugin.Name)"
-
-                if ((Test-Path $enginePath) -or (Test-Path $projectPath)) {
-                    $enabledPlugins += "-Plugin=`"$($plugin.Name)`""
-                }
-                else {
-                    Write-Host "Skipping missing plugin: $($plugin.Name)"
-                }
-            }
-        }
-
-        $pluginArgs = $enabledPlugins -join " "
-        Write-Host "Final plugin list: $pluginArgs"
-
-        Set-Content "$env:GITHUB_WORKSPACE\plugin_args.txt" $pluginArgs
-
-
-    # -------------------------------------------------
-    # Build UE4Editor (minimal + required plugins)
-    # -------------------------------------------------
-    - name: Build UE4Editor
-      shell: powershell
-      run: |
-        $pluginArgs = Get-Content "$env:GITHUB_WORKSPACE\plugin_args.txt"
-        Write-Host "Building UE4Editor with plugins: $pluginArgs"
-
-        & "X:\Engine\Build\BatchFiles\Build.bat" `
-          UE4Editor `
-          Win64 `
-          Development `
-          $pluginArgs `
-          -NoDebugInfo `
-          -NoHotReload
-
-        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-
-    # -------------------------------------------------
-    # Build Game Project
-    # -------------------------------------------------
-    - name: Build Project
-      shell: powershell
-      run: |
-        $pluginArgs = Get-Content "$env:GITHUB_WORKSPACE\plugin_args.txt"
-        $uproject = "$env:GITHUB_WORKSPACE\p\ActionRPG - Vite\ActionRPG.uproject"
-
-        Write-Host "Building project with plugins: $pluginArgs"
+        Write-Host "Building minimal engine + game target..."
 
         & "X:\Engine\Build\BatchFiles\Build.bat" `
           ActionRPG `
           Win64 `
           Development `
           -Project="$uproject" `
-          $pluginArgs `
           -NoDebugInfo `
           -NoHotReload
 
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+        Write-Host "Build completed successfully."
