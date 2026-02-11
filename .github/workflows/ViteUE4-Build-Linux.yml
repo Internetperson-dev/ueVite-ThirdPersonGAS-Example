@@ -11,13 +11,15 @@ jobs:
 
     steps:
 
-
     # -------------------------------------------------
-    # Clean up Storage
+    # Display disk usage
     # -------------------------------------------------
-
     - run: df -h
-    - name: "node-cleanup"
+
+    # -------------------------------------------------
+    # Clean up storage to free space
+    # -------------------------------------------------
+    - name: Clean up storage
       run: |
         sudo rm -rf /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
         sudo docker image prune --all --force
@@ -25,12 +27,16 @@ jobs:
     - run: df -h
 
     # -------------------------------------------------
-    # Install Dependencies
+    # Install essential system dependencies for UE4
     # -------------------------------------------------
-    - name: Install UE4 dependencies
+    - name: Install UE4 Linux dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y clang mono-complete libicu-dev libssl-dev libxcb-xinerama0
+        sudo apt-get install -y \
+          build-essential clang-10 lld-10 mono-complete \
+          libicu-dev libssl-dev libxcb-xinerama0-dev libxrandr-dev \
+          libxinerama-dev libxi-dev libxss-dev libgl1-mesa-dev \
+          libgtk-3-dev cmake ninja-build git wget unzip
 
     # -------------------------------------------------
     # Checkout UE4 Custom Engine
@@ -44,42 +50,28 @@ jobs:
         token: ${{ secrets.UE_PAT }}
 
     # -------------------------------------------------
-    # Cache GitDependencies
+    # Setup UE4 Engine (official Linux instructions)
     # -------------------------------------------------
-    - name: Cache UE4 Dependencies
-      uses: actions/cache@v4
-      with:
-        path: ue/.git/ue4-gitdeps
-        key: ue4-gitdeps-4.27
-
-    # -------------------------------------------------
-    # Sync UE4 Dependencies
-    # -------------------------------------------------
-    - name: Sync UE4 Dependencies
+    - name: Setup UE4 Engine
       run: |
         cd ue
-        Engine/Binaries/DotNET/GitDependencies.exe \
-          --exclude=Mac \
-          --exclude=Win64 \
-          --exclude=Android \
-          --exclude=IOS \
-          --exclude=TVOS \
-          --exclude=HTML5 \
-          --threads=16
-
-    # -------------------------------------------------
-    # Generate Project Files
-    # -------------------------------------------------
-    - name: Generate Project Files
-      run: |
-        cd ue
+        chmod +x Setup.sh
+        ./Setup.sh
         chmod +x GenerateProjectFiles.sh
-        ./GenerateProjectFiles.sh
+        ./GenerateProjectFiles.sh -Linux
+
+    # -------------------------------------------------
+    # Build UE4 Engine from source
+    # -------------------------------------------------
+    - name: Build UE4 Engine
+      run: |
+        cd ue
+        make -j$(nproc)  # Uses all available cores for faster build
 
     # -------------------------------------------------
     # Checkout Game Project
     # -------------------------------------------------
-    - name: Checkout Project
+    - name: Checkout Game Project
       uses: actions/checkout@v4
       with:
         repository: ViteStudio-Tech/ueVite-ThirdPersonGAS-Example
@@ -87,22 +79,23 @@ jobs:
         lfs: true
 
     # -------------------------------------------------
-    # Build Game Target ONLY (Minimal Engine Build)
+    # Build Game Target (Minimal Linux Server)
     # -------------------------------------------------
-    - name: Build Game
+    - name: Build Game Target
       run: |
         UPROJECT="$GITHUB_WORKSPACE/project/ActionRPG - Vite/ActionRPG.uproject"
         if [ ! -f "$UPROJECT" ]; then
           echo "UPROJECT NOT FOUND!"
           exit 1
         fi
-        echo "Building minimal engine + game target..."
+        echo "Building minimal engine + game target for Linux..."
         chmod +x ue/Engine/Build/BatchFiles/Linux/Build.sh
-        ue/Engine/Build/BatchFiles/Linux/Build.sh \
-          ActionRPG Linux Development \
+        ./ue/Engine/Build/BatchFiles/Linux/Build.sh \
+          ActionRPGServer Linux Development \
           -Project="$UPROJECT" \
           -NoDebugInfo \
-          -NoHotReload
+          -NoHotReload \
+          -TargetType=Server
         echo "Build completed successfully."
 
     # -------------------------------------------------
@@ -111,7 +104,7 @@ jobs:
     - name: Upload Build Artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: MinimalGameBuild
+        name: MinimalGameBuild_Linux
         path: |
           project/Binaries
           project/Saved
