@@ -19,7 +19,6 @@ jobs:
       run: |
         New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" `
         -Name "LongPathsEnabled" -Value 1 -PropertyType DWORD -Force
-
     - name: Enable git long paths
       run: git config --system core.longpaths true
 
@@ -34,13 +33,9 @@ jobs:
         lfs: true
         fetch-depth: 1
 
-    # -------------------------------
-    # Map UE4 to drive X
-    # -------------------------------
     - name: Map UE4 to drive X
       shell: cmd
-      run: |
-        subst X: %GITHUB_WORKSPACE%\a
+      run: subst X: %GITHUB_WORKSPACE%\a
 
     # -------------------------------
     # Cache UE4 Dependencies
@@ -70,6 +65,17 @@ jobs:
         GenerateProjectFiles.bat
 
     # -------------------------------
+    # Build UE4Editor with required engine plugins
+    # -------------------------------
+    - name: Build UE4Editor with engine plugins
+      shell: cmd
+      run: |
+        cd /d X:\
+        Engine\Build\BatchFiles\Build.bat UE4Editor Win64 Development ^
+          -Plugin="GameplayAbilities;SlateRemote;RTXGI;HoudiniEngine" ^
+          -NoDebugInfo -NoHotReload
+
+    # -------------------------------
     # Checkout Your Project
     # -------------------------------
     - name: Checkout Project
@@ -80,37 +86,28 @@ jobs:
         lfs: true
 
     # -------------------------------
-    # Scan .uproject for enabled plugins
+    # Scan .uproject for project plugins only
     # -------------------------------
-    - name: Get enabled plugins
+    - name: Get project plugins only
       shell: powershell
       run: |
         $uproject = "$env:GITHUB_WORKSPACE\p\ActionRPG - Vite\ActionRPG.uproject"
-        Write-Host "Scanning $uproject for enabled plugins..."
+        Write-Host "Scanning $uproject for project-only plugins..."
         $json = Get-Content $uproject | ConvertFrom-Json
-        $enabledPlugins = $json.Plugins | Where-Object { $_.Enabled -eq $true } | ForEach-Object { '-Plugin="'+$_.Name+'"' }
-        $enabledPluginsString = $enabledPlugins -join ' '
-        Write-Host "Enabled plugins: $enabledPluginsString"
-        # Save as plain string for later
-        Set-Content -Path "$env:GITHUB_WORKSPACE\plugin_args.txt" -Value $enabledPluginsString
+        # Filter out engine plugins
+        $enginePlugins = @("GameplayAbilities","SlateRemote","RTXGI","HoudiniEngine")
+        $projectPlugins = $json.Plugins | Where-Object { $_.Enabled -eq $true -and ($enginePlugins -notcontains $_.Name) } | ForEach-Object { '-Plugin="'+$_.Name+'"' }
+        $pluginArgsString = $projectPlugins -join ' '
+        Write-Host "Project plugins: $pluginArgsString"
+        Set-Content -Path "$env:GITHUB_WORKSPACE\plugin_args.txt" -Value $pluginArgsString
 
     # -------------------------------
-    # Build UE4Editor with required plugins
-    # -------------------------------
-    - name: Build UE4Editor
-      shell: powershell
-      run: |
-        $pluginArgs = Get-Content "$env:GITHUB_WORKSPACE\plugin_args.txt"
-        Write-Host "Building UE4Editor with plugins: $pluginArgs"
-        Start-Process -NoNewWindow -Wait -FilePath "X:\Engine\Build\BatchFiles\Build.bat" -ArgumentList "UE4Editor Win64 Development $pluginArgs -NoDebugInfo -NoHotReload"
-
-    # -------------------------------
-    # Build Project with required plugins
+    # Build Project
     # -------------------------------
     - name: Build Project
       shell: powershell
       run: |
-        $pluginArgs = Get-Content "$env:GITHUB_WORKSPACE\plugin_args.txt"
         $uproject = "$env:GITHUB_WORKSPACE\p\ActionRPG - Vite\ActionRPG.uproject"
+        $pluginArgs = Get-Content "$env:GITHUB_WORKSPACE\plugin_args.txt"
         Write-Host "Building project with plugins: $pluginArgs"
         Start-Process -NoNewWindow -Wait -FilePath "X:\Engine\Build\BatchFiles\Build.bat" -ArgumentList "ActionRPG Win64 Development -Project=`"$uproject`" $pluginArgs -NoDebugInfo -NoHotReload"
