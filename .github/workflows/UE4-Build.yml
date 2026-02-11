@@ -37,7 +37,7 @@ jobs:
     - name: Map UE4 to drive X
       shell: cmd
       run: 'subst X: %GITHUB_WORKSPACE%\a'
-      
+
     # -------------------------------
     # Cache UE4 Dependencies
     # -------------------------------
@@ -66,16 +66,7 @@ jobs:
         GenerateProjectFiles.bat
 
     # -------------------------------
-    # Build UE4Game
-    # -------------------------------
-    - name: Build UE4Game
-      shell: cmd
-      run: |
-        cd /d X:\
-        Engine\Build\BatchFiles\Build.bat UE4Game Win64 Development -NoDebugInfo -NoHotReload
-
-    # -------------------------------
-    # Checkout Project
+    # Checkout Your Project
     # -------------------------------
     - name: Checkout Project
       uses: actions/checkout@v4
@@ -85,7 +76,7 @@ jobs:
         lfs: true
 
     # -------------------------------
-    # Scan Project for Enabled Plugins
+    # Scan .uproject for enabled plugins
     # -------------------------------
     - name: Scan .uproject for enabled plugins
       shell: powershell
@@ -99,7 +90,21 @@ jobs:
         $enabledPlugins | Out-File "$env:GITHUB_WORKSPACE\enabled_plugins.txt"
 
     # -------------------------------
-    # Build Project with Only Required Plugins
+    # Build UE4Editor with required plugins
+    # -------------------------------
+    - name: Build UE4Editor with required plugins
+      shell: cmd
+      run: |
+        setlocal enabledelayedexpansion
+        set PLUGINS=
+        for /F "tokens=*" %%p in ("%GITHUB_WORKSPACE%\enabled_plugins.txt") do (
+          set PLUGINS=!PLUGINS! -Plugin="%%p"
+        )
+        echo Building UE4Editor with plugins: !PLUGINS!
+        X:\Engine\Build\BatchFiles\Build.bat UE4Editor Win64 Development !PLUGINS! -NoDebugInfo -NoHotReload
+
+    # -------------------------------
+    # Build Project with required plugins
     # -------------------------------
     - name: Build Project
       shell: cmd
