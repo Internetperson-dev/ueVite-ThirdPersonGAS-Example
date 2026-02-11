@@ -7,18 +7,25 @@ on:
 
 jobs:
   build:
-    runs-on: windows-2019   # <- VS2019 installed
+    runs-on: windows-2019   # VS2019 installed
 
     steps:
 
+    # -------------------------------
+    # Enable long paths
+    # -------------------------------
     - name: Enable Windows long paths
       shell: powershell
       run: |
-        New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" -Name "LongPathsEnabled" -Value 1 -PropertyType DWORD -Force
+        New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" `
+        -Name "LongPathsEnabled" -Value 1 -PropertyType DWORD -Force
 
     - name: Enable git long paths
       run: git config --system core.longpaths true
 
+    # -------------------------------
+    # Checkout UE4
+    # -------------------------------
     - name: Checkout UE4
       uses: actions/checkout@v4
       with:
@@ -29,33 +36,47 @@ jobs:
 
     - name: Map UE4 to drive X
       shell: cmd
-      run: |
-        subst X: %GITHUB_WORKSPACE%\a
+      run: subst X: %GITHUB_WORKSPACE%\a
 
+    # -------------------------------
+    # Cache UE4 Dependencies
+    # -------------------------------
     - name: Cache UE4 Dependencies
       uses: actions/cache@v4
       with:
         path: a\.git\ue4-gitdeps
         key: ue4-gitdeps-4.27
 
+    # -------------------------------
+    # Sync UE4 Dependencies
+    # -------------------------------
     - name: Sync UE4 Dependencies
       shell: cmd
       run: |
         cd /d X:\
         Engine\Binaries\DotNET\GitDependencies.exe --exclude=Mac --exclude=Linux --exclude=Android --exclude=IOS --exclude=TVOS --exclude=WinRT --exclude=HTML5 --threads=16
 
+    # -------------------------------
+    # Generate Project Files
+    # -------------------------------
     - name: Generate Project Files
       shell: cmd
       run: |
         cd /d X:\
         GenerateProjectFiles.bat
 
+    # -------------------------------
+    # Build UE4Game
+    # -------------------------------
     - name: Build UE4Game
       shell: cmd
       run: |
         cd /d X:\
         Engine\Build\BatchFiles\Build.bat UE4Game Win64 Development -NoDebugInfo -NoHotReload
 
+    # -------------------------------
+    # Checkout Project
+    # -------------------------------
     - name: Checkout Project
       uses: actions/checkout@v4
       with:
@@ -63,7 +84,31 @@ jobs:
         path: p
         lfs: true
 
+    # -------------------------------
+    # Scan Project for Enabled Plugins
+    # -------------------------------
+    - name: Scan .uproject for enabled plugins
+      shell: powershell
+      run: |
+        $uproject = "$env:GITHUB_WORKSPACE\p\ActionRPG - Vite\ActionRPG.uproject"
+        Write-Host "Scanning $uproject for enabled plugins..."
+        $json = Get-Content $uproject | ConvertFrom-Json
+        $enabledPlugins = $json.Plugins | Where-Object { $_.Enabled -eq $true } | ForEach-Object { $_.Name }
+        Write-Host "Enabled plugins: $enabledPlugins"
+        # Save list to a file
+        $enabledPlugins | Out-File "$env:GITHUB_WORKSPACE\enabled_plugins.txt"
+
+    # -------------------------------
+    # Build Project with Only Required Plugins
+    # -------------------------------
     - name: Build Project
       shell: cmd
       run: |
-        X:\Engine\Build\BatchFiles\Build.bat ActionRPG Win64 Development -Project="%GITHUB_WORKSPACE%\p\ActionRPG - Vite\ActionRPG.uproject" -NoDebugInfo -NoHotReload
+        setlocal enabledelayedexpansion
+        set PLUGINS=
+        for /F "tokens=*" %%p in ("%GITHUB_WORKSPACE%\enabled_plugins.txt") do (
+          set PLUGINS=!PLUGINS! -Plugin="%%p"
+        )
+        echo Building ActionRPG with plugins: !PLUGINS!
+        X:\Engine\Build\BatchFiles\Build.bat ActionRPG Win64 Development ^
+          -Project="%GITHUB_WORKSPACE%\p\ActionRPG - Vite\ActionRPG.uproject" !PLUGINS! -NoDebugInfo -NoHotReload
