@@ -28,14 +28,13 @@ jobs:
     # -------------------------------------------------
     # Checkout UE4 Source
     # -------------------------------------------------
-    - name: Checkout UE4
+    - name: Checkout UE4 Custom Engine
       uses: actions/checkout@v4
       with:
         repository: GapingPixel/UnrealEngineVite-PhysX
         path: ue
         lfs: true
-        fetch-depth: 1
-
+        token: ${{ secrets.UE_PAT }}
 
     # -------------------------------------------------
     # Map UE4 to drive X: (avoid long path issues)
