@@ -1,0 +1,104 @@
+name: UE4 Minimal Build (Linux)
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+
+    # -------------------------------------------------
+    # Install Dependencies
+    # -------------------------------------------------
+    - name: Install UE4 dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y clang mono-complete libicu-dev libssl-dev libxcb-xinerama0
+
+    # -------------------------------------------------
+    # Checkout UE4 Custom Engine
+    # -------------------------------------------------
+    - name: Checkout UE4 Custom Engine
+      uses: actions/checkout@v4
+      with:
+        repository: GapingPixel/UnrealEngineVite-PhysX
+        path: ue
+        lfs: true
+        token: ${{ secrets.UE_PAT }}
+
+    # -------------------------------------------------
+    # Cache GitDependencies
+    # -------------------------------------------------
+    - name: Cache UE4 Dependencies
+      uses: actions/cache@v4
+      with:
+        path: ue/.git/ue4-gitdeps
+        key: ue4-gitdeps-4.27
+
+    # -------------------------------------------------
+    # Sync UE4 Dependencies
+    # -------------------------------------------------
+    - name: Sync UE4 Dependencies
+      run: |
+        cd ue
+        Engine/Binaries/DotNET/GitDependencies.exe \
+          --exclude=Mac \
+          --exclude=Win64 \
+          --exclude=Android \
+          --exclude=IOS \
+          --exclude=TVOS \
+          --exclude=HTML5 \
+          --threads=16
+
+    # -------------------------------------------------
+    # Generate Project Files
+    # -------------------------------------------------
+    - name: Generate Project Files
+      run: |
+        cd ue
+        chmod +x GenerateProjectFiles.sh
+        ./GenerateProjectFiles.sh
+
+    # -------------------------------------------------
+    # Checkout Game Project
+    # -------------------------------------------------
+    - name: Checkout Project
+      uses: actions/checkout@v4
+      with:
+        repository: ViteStudio-Tech/ueVite-ThirdPersonGAS-Example
+        path: project
+        lfs: true
+
+    # -------------------------------------------------
+    # Build Game Target ONLY (Minimal Engine Build)
+    # -------------------------------------------------
+    - name: Build Game
+      run: |
+        UPROJECT="$GITHUB_WORKSPACE/project/ActionRPG - Vite/ActionRPG.uproject"
+        if [ ! -f "$UPROJECT" ]; then
+          echo "UPROJECT NOT FOUND!"
+          exit 1
+        fi
+        echo "Building minimal engine + game target..."
+        chmod +x ue/Engine/Build/BatchFiles/Linux/Build.sh
+        ue/Engine/Build/BatchFiles/Linux/Build.sh \
+          ActionRPG Linux Development \
+          -Project="$UPROJECT" \
+          -NoDebugInfo \
+          -NoHotReload
+        echo "Build completed successfully."
+
+    # -------------------------------------------------
+    # Upload Build Artifacts
+    # -------------------------------------------------
+    - name: Upload Build Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: MinimalGameBuild
+        path: |
+          project/Binaries
+          project/Saved
