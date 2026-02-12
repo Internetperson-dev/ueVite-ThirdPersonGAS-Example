@@ -109,19 +109,8 @@ jobs:
         chmod +x Setup.sh
         ./Setup.sh
         chmod +x GenerateProjectFiles.sh
-        ./GenerateProjectFiles.sh -Linux
-
-    # -------------------------------------------------
-    # Cleanup Unreal Intermediate files to save space
-    # -------------------------------------------------
-    - name: Cleanup Unreal Intermediate Files
-      run: |
-        cd ue
-        rm -rf Engine/Intermediate/Build/BuildRules
-        rm -rf Engine/Intermediate/DerivedDataCache
-        rm -rf Engine/Intermediate/ProjectFiles
-        rm -rf Engine/Source/Programs/UnrealBuildTool/Intermediate
-        rm -rf Engine/Extras/ThirdPartyNotUE
+        ./GenerateProjectFiles.sh
+        make -j$(nproc)
         df -h
 
     # -------------------------------------------------
@@ -131,7 +120,7 @@ jobs:
       run: |
         cd ue
         df -h
-        make -j$(nproc)  # Use all available cores
+          # Use all available cores
 
     # -------------------------------------------------
     # Checkout Game Project
