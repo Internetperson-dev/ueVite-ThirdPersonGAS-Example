@@ -15,48 +15,32 @@ jobs:
     # Display initial disk usage
     # -------------------------------------------------
     - name: Disk Usage Before Cleanup
-      run: df -h 
+      run: df -h
 
     # -------------------------------------------------
     # Aggressive cleanup to free disk space
     # -------------------------------------------------
-    - name: Free up disk space # Inspiration - https://github.com/jlumbroso/free-disk-space/blob/main/action.yml - Licenced under the MIT licence  https://carlosbecker.com/posts/github-actions-disk-space/ - https://dev.to/mathio/squeezing-disk-space-from-github-actions-runners-an-engineers-guide-3pjg - https://github.com/endersonmenezes/free-disk-space Also licenced under MIT
+    - name: Free up disk space
       run: |
         sudo rm -rf /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
         sudo rm -rf /home/runner/.cache /home/runner/.npm /home/runner/.local/share /home/runner/.dotnet
         sudo apt-get clean
-        sudo rm -rf /usr/local/lib/android || true
-        sudo rm -rf /opt/ghc || true
-        sudo rm -rf /usr/local/.ghcup || true
-        sudo apt-get remove -y '^aspnetcore-.*' || echo "::warning::Failed to remove aspnetcore packages"
-        sudo apt-get remove -y '^llvm-.*' --fix-missing || echo "::warning::Failed to remove llvm packages"
-        sudo apt-get remove -y 'php.*' --fix-missing || echo "::warning::Failed to remove php packages"
-        sudo apt-get remove -y '^mongodb-.*' --fix-missing || echo "::warning::Failed to remove mongodb packages"
-        sudo apt-get remove -y '^mysql-.*' --fix-missing || echo "::warning::Failed to remove mysql packages"
-        sudo apt-get remove -y azure-cli google-chrome-stable firefox powershell libgl1-mesa-dri --fix-missing || echo "::warning::Failed to remove misc packages"
-        sudo apt-get remove -y google-cloud-sdk --fix-missing || echo "::debug::Failed to remove google-cloud-sdk"
-        sudo apt-get remove -y google-cloud-cli --fix-missing || echo "::debug::Failed to remove google-cloud-cli"
-        sudo apt-get autoremove -y || echo "::warning::Failed to autoremove"
-        sudo apt-get clean || echo "::warning::Failed to clean apt cache"
+        sudo apt-get remove -y '^aspnetcore-.*' || true
+        sudo apt-get remove -y '^llvm-.*' || true
+        sudo apt-get remove -y 'php.*' || true
+        sudo apt-get remove -y '^mongodb-.*' || true
+        sudo apt-get remove -y '^mysql-.*' || true
+        sudo apt-get remove -y azure-cli google-chrome-stable firefox powershell || true
+        sudo apt-get autoremove -y || true
         sudo docker image prune --all --force || true
         sudo swapoff -a || true
         sudo rm -f /mnt/swapfile || true
-        sudo rm -rf /usr/lib/jvm
-        sudo rm -rf /usr/share/swift
-        sudo rm -rf /usr/local/.ghcup
-        sudo rm -rf /usr/local/julia*
-        sudo rm -rf /usr/local/lib/android
-        sudo rm -rf /usr/local/share/chromium
-        sudo rm -rf /opt/microsoft /opt/google
-        sudo rm -rf /opt/az
-        sudo rm -rf /usr/local/share/powershell
-        sudo rm -rf /opt/hostedtoolcache
+        sudo rm -rf /usr/lib/jvm /usr/share/swift /opt/hostedtoolcache
         free -h
-        df -h 
-
+        df -h
 
     # -------------------------------------------------
-    # Install UE4 Linux dependencies and ccache
+    # Install UE4 Linux dependencies
     # -------------------------------------------------
     - name: Install UE4 Linux dependencies
       run: |
@@ -66,31 +50,11 @@ jobs:
           libicu-dev libssl-dev libxcb-xinerama0-dev libxrandr-dev \
           libxinerama-dev libxi-dev libxss-dev libgl1-mesa-dev \
           libgtk-3-dev cmake ninja-build git wget unzip ccache
-        # Enable ccache for faster rebuilds
-        export PATH="/usr/lib/ccache:$PATH"
         df -h
-
-    # -------------------------------------------------
-    # NCDU Print Out
-    # -------------------------------------------------
-    - name: Scan disk usage with ncdu
-      run: |
-          # Install ncdu
-          sudo apt-get update && sudo apt-get install -y ncdu
-
-          # Run ncdu scan and output JSON
-          sudo ncdu -o ncdu_output.json /
-
-    - name: Upload NCdu output as artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: ncdu-output
-        path: ncdu_output.json
 
     # -------------------------------------------------
     # Checkout UE4 Custom Engine
     # -------------------------------------------------
-
     - name: Checkout UE4 Custom Engine
       uses: actions/checkout@v4
       with:
@@ -99,28 +63,16 @@ jobs:
         lfs: true
         token: ${{ secrets.UE_PAT }}
 
-
     # -------------------------------------------------
     # Setup UE4 Engine (official Linux instructions)
     # -------------------------------------------------
     - name: Setup UE4 Engine
       run: |
         cd ue
-        chmod +x Setup.sh
         ./Setup.sh
-        chmod +x GenerateProjectFiles.sh
         ./GenerateProjectFiles.sh
         make -j$(nproc)
         df -h
-
-    # -------------------------------------------------
-    # Build UE4 Engine from source
-    # -------------------------------------------------
-    - name: Build UE4 Engine
-      run: |
-        cd ue
-        df -h
-          # Use all available cores
 
     # -------------------------------------------------
     # Checkout Game Project
@@ -137,27 +89,29 @@ jobs:
     # -------------------------------------------------
     - name: Build Game Target
       run: |
-        UPROJECT="$GITHUB_WORKSPACE/project/ActionRPG - Vite/ActionRPG.uproject"
-        if [ ! -f "$UPROJECT" ]; then
+        UPROJECT=$(find "$GITHUB_WORKSPACE/project" -name "*.uproject" | head -n 1)
+
+        if [ -z "$UPROJECT" ]; then
           echo "UPROJECT NOT FOUND!"
           exit 1
         fi
+
+        echo "Using uproject: $UPROJECT"
         echo "Building minimal engine + game target for Linux..."
-        chmod +x ue/Engine/Build/BatchFiles/Linux/Build.sh
-        ./ue/Engine/Build/BatchFiles/Linux/Build.sh \
+
+        ue/Engine/Build/BatchFiles/Linux/Build.sh \
           ActionRPGServer Linux Development \
           -Project="$UPROJECT" \
-          -NoDebugInfo \
           -NoHotReload \
           -TargetType=Server
+
         echo "Build completed successfully."
 
     # -------------------------------------------------
-    # Optional: Cleanup engine binaries you don't need to save space
+    # Optional: Cleanup engine editor binaries to save space
     # -------------------------------------------------
     - name: Cleanup Engine Binaries
       run: |
-        df -h
         cd ue
         rm -rf Engine/Binaries/Linux/UE4Editor
         rm -rf Engine/Binaries/Linux/UE4Game
