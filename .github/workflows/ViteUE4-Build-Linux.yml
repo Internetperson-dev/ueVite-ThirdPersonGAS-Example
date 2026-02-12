@@ -71,7 +71,7 @@ jobs:
           ncdu -o ncdu_output.json .
 
     - name: Upload NCdu output as artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: ncdu-output
         path: ncdu_output.json
