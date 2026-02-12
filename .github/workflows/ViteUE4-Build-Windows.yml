@@ -35,6 +35,12 @@ jobs:
           -Name "LongPathsEnabled" -Value 1 -PropertyType DWORD -Force
         git config --system core.longpaths true
 
+
+    - name: Install VC++ Runtime
+      shell: powershell
+      run: |
+        choco install vcredist140 -y
+
     # -------------------------------------------------
     # Checkout Engine
     # -------------------------------------------------
