@@ -51,8 +51,8 @@ jobs:
     # -------------------------------------------------
     - name: Map UE4 to drive X
       shell: cmd
-      run: |
-        subst X: "%GITHUB_WORKSPACE%\ue"
+      run: subst X: "%GITHUB_WORKSPACE%\ue"
+
     # -------------------------------------------------
     # Cache GitDependencies + ThirdParty
     # -------------------------------------------------
@@ -65,7 +65,7 @@ jobs:
         key: gitdeps-4.27
 
     # -------------------------------------------------
-    # Sync Dependencies (only if needed)
+    # Sync Dependencies
     # -------------------------------------------------
     - name: Sync UE4 Dependencies
       shell: cmd
@@ -97,9 +97,7 @@ jobs:
     # -------------------------------------------------
     - name: Generate Project Files
       shell: cmd
-      run: |
-        cd /d X:\
-        GenerateProjectFiles.bat
+      run: cd /d X:\ && GenerateProjectFiles.bat
 
     # -------------------------------------------------
     # Checkout Project
@@ -123,7 +121,7 @@ jobs:
         key: ${{ env.PROJECT_CACHE_KEY }}
 
     # -------------------------------------------------
-    # Cache DerivedDataCache (Huge speed boost)
+    # Cache DerivedDataCache
     # -------------------------------------------------
     - name: Cache DerivedDataCache
       uses: actions/cache@v4
@@ -134,7 +132,7 @@ jobs:
         key: ${{ env.DDC_CACHE_KEY }}
 
     # -------------------------------------------------
-    # Build Game
+    # Build Game (Development/Shipping)
     # -------------------------------------------------
     - name: Build Game Target
       shell: powershell
@@ -145,11 +143,7 @@ jobs:
         }
 
         $uproject = "$env:GITHUB_WORKSPACE\project\ActionRPG - Vite\ActionRPG.uproject"
-
-        if (!(Test-Path $uproject)) {
-            Write-Error "UPROJECT NOT FOUND!"
-            exit 1
-        }
+        if (!(Test-Path $uproject)) { Write-Error "UPROJECT NOT FOUND!"; exit 1 }
 
         Write-Host "Building configuration: $config"
 
@@ -166,20 +160,42 @@ jobs:
         Write-Host "Build completed successfully."
 
     # -------------------------------------------------
-    # Locate Build Output
+    # Package for WindowsNoEditor (Full Shipping Layout)
     # -------------------------------------------------
-    - name: Locate Build Output
+    - name: Package WindowsNoEditor
       shell: powershell
       run: |
-        $root = "$env:GITHUB_WORKSPACE\project"
-        Write-Host "Searching for built executables..."
-        Get-ChildItem -Path $root -Recurse -Filter *.exe
+        $config = "${{ github.event.inputs.buildConfig }}"
+        if ([string]::IsNullOrWhiteSpace($config)) { $config = "Development" }
+
+        $uproject = "$env:GITHUB_WORKSPACE\project\ActionRPG - Vite\ActionRPG.uproject"
+        $outputDir = "$env:GITHUB_WORKSPACE\project\release"
+
+        Write-Host "Packaging WindowsNoEditor to $outputDir ..."
+
+        & "X:\Engine\Build\BatchFiles\RunUAT.bat" BuildCookRun `
+          -project="$uproject" `
+          -noP4 `
+          -platform=Win64 `
+          -clientconfig=$config `
+          -serverconfig=$config `
+          -cook `
+          -allmaps `
+          -build `
+          -stage `
+          -pak `
+          -archive `
+          -archivedirectory="$outputDir"
+
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+        Write-Host "Packaging completed successfully."
 
     # -------------------------------------------------
-    # Upload Artifacts
+    # Upload Full Packaged Game
     # -------------------------------------------------
-    - name: Upload Build Artifacts
+    - name: Upload Packaged Game
       uses: actions/upload-artifact@v4
       with:
-        name: UE4-Build-${{ github.event.inputs.buildConfig }}
-        path: project\**\Binaries\**
+        name: UE4-WindowsNoEditor-${{ github.event.inputs.buildConfig }}
+        path: project\release\**\WindowsNoEditor\**
