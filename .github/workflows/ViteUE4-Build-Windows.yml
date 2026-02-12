@@ -51,8 +51,8 @@ jobs:
     # -------------------------------------------------
     - name: Map UE4 to drive X
       shell: cmd
-      run: subst X: "%GITHUB_WORKSPACE%\ue"
-
+      run: |
+        subst X: "%GITHUB_WORKSPACE%\ue"
     # -------------------------------------------------
     # Cache GitDependencies + ThirdParty
     # -------------------------------------------------
