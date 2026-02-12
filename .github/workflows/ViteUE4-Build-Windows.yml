@@ -101,9 +101,9 @@ jobs:
     # -------------------------------------------------
     # Generate Project Files
     # -------------------------------------------------
-    - name: Generate Project Files
-      shell: cmd
-      run: cd /d X:\ && GenerateProjectFiles.bat
+    #- name: Generate Project Files
+    #  shell: cmd
+    #  run: cd /d X:\ && GenerateProjectFiles.bat
 
     # -------------------------------------------------
     # Checkout Project
