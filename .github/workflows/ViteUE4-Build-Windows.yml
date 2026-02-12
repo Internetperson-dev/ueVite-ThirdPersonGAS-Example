@@ -110,25 +110,34 @@ jobs:
         Write-Host "Build completed successfully."
 
     # -------------------------------------------------
-    # Search for built files dynamically
+    # Find and Print Build Output (Recursive Search)
     # -------------------------------------------------
     - name: Find Build Output
       shell: powershell
       run: |
-        $binaries = Get-ChildItem -Path "$env:GITHUB_WORKSPACE\project\Binaries" -Recurse -File -ErrorAction SilentlyContinue
-        $saved = Get-ChildItem -Path "$env:GITHUB_WORKSPACE\project\Saved" -Recurse -File -ErrorAction SilentlyContinue
+        $root = "$env:GITHUB_WORKSPACE\project"
 
-        if ($binaries.Count -eq 0 -and $saved.Count -eq 0) {
-            Write-Warning "No files found in Binaries or Saved folders!"
+        Write-Host "Searching for .exe files..."
+        $exes = Get-ChildItem -Path $root -Recurse -Filter *.exe -ErrorAction SilentlyContinue
+
+        if ($exes.Count -eq 0) {
+            Write-Warning "No EXE files found!"
         } else {
-            Write-Host "Found build files:"
-            $binaries + $saved | ForEach-Object { Write-Host $_.FullName }
+            Write-Host "Found executables:"
+            $exes | ForEach-Object { Write-Host $_.FullName }
         }
 
-        # Save the found paths to variables for upload
-        $binaries | ForEach-Object { $_.FullName } | Out-File "$env:GITHUB_WORKSPACE\binaries.txt"
-        $saved | ForEach-Object { $_.FullName } | Out-File "$env:GITHUB_WORKSPACE\saved.txt"
+        Write-Host "Full project directory tree:"
+        Get-ChildItem -Path $root -Recurse
 
+    # -------------------------------------------------
+    # Upload Entire Project Binaries (Safe Fallback)
+    # -------------------------------------------------
+    - name: Upload Build Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: MinimalGameBuild
+        path: project\**\Binaries\**
     # -------------------------------------------------
     # Upload Build Artifacts
     # -------------------------------------------------
