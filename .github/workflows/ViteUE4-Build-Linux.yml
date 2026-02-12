@@ -15,17 +15,34 @@ jobs:
     # Display initial disk usage
     # -------------------------------------------------
     - name: Disk Usage Before Cleanup
-      run: df -h ; sudo find / -xdev -type f -exec ls -lhS {} + 2>/dev/null | head -n 20
+      run: df -h 
 
     # -------------------------------------------------
     # Aggressive cleanup to free disk space
     # -------------------------------------------------
-    - name: Free up disk space
+    - name: Free up disk space # Inspiration - https://github.com/jlumbroso/free-disk-space/blob/main/action.yml - Licenced under the MIT licence  https://carlosbecker.com/posts/github-actions-disk-space/ 
       run: |
         sudo rm -rf /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
         sudo rm -rf /home/runner/.cache /home/runner/.npm /home/runner/.local/share /home/runner/.dotnet
         sudo apt-get clean
-        df -h ; sudo find / -xdev -type f -exec ls -lhS {} + 2>/dev/null | head -n 20
+        sudo rm -rf /usr/local/lib/android || true
+        sudo rm -rf /opt/ghc || true
+        sudo rm -rf /usr/local/.ghcup || true
+        sudo apt-get remove -y '^aspnetcore-.*' || echo "::warning::Failed to remove aspnetcore packages"
+        sudo apt-get remove -y '^llvm-.*' --fix-missing || echo "::warning::Failed to remove llvm packages"
+        sudo apt-get remove -y 'php.*' --fix-missing || echo "::warning::Failed to remove php packages"
+        sudo apt-get remove -y '^mongodb-.*' --fix-missing || echo "::warning::Failed to remove mongodb packages"
+        sudo apt-get remove -y '^mysql-.*' --fix-missing || echo "::warning::Failed to remove mysql packages"
+        sudo apt-get remove -y azure-cli google-chrome-stable firefox powershell mono-devel libgl1-mesa-dri --fix-missing || echo "::warning::Failed to remove misc packages"
+        sudo apt-get remove -y google-cloud-sdk --fix-missing || echo "::debug::Failed to remove google-cloud-sdk"
+        sudo apt-get remove -y google-cloud-cli --fix-missing || echo "::debug::Failed to remove google-cloud-cli"
+        sudo apt-get autoremove -y || echo "::warning::Failed to autoremove"
+        sudo apt-get clean || echo "::warning::Failed to clean apt cache"
+        sudo docker image prune --all --force || true
+        sudo swapoff -a || true
+        sudo rm -f /mnt/swapfile || true
+        free -h
+        df -h 
 
     # -------------------------------------------------
     # Install UE4 Linux dependencies and ccache
