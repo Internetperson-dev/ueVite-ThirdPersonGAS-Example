@@ -1,32 +1,44 @@
-name: UE4 Minimal Build
+name: UE4 Optimized Build
 
 on:
   push:
     branches: [ main ]
   workflow_dispatch:
+    inputs:
+      buildConfig:
+        description: "Build Configuration"
+        required: true
+        default: "Development"
+        type: choice
+        options:
+          - Development
+          - Shipping
 
 jobs:
   build:
     runs-on: windows-2019
 
+    env:
+      ENGINE_CACHE_KEY: ue4-engine-4.27-v1
+      PROJECT_CACHE_KEY: project-build-v1
+      DDC_CACHE_KEY: ddc-cache-v1
+
     steps:
 
     # -------------------------------------------------
-    # Enable Windows + Git long paths
+    # Enable Long Paths
     # -------------------------------------------------
     - name: Enable Windows long paths
       shell: powershell
       run: |
         New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" `
           -Name "LongPathsEnabled" -Value 1 -PropertyType DWORD -Force
-    - name: Enable git long paths
-      shell: powershell
-      run: git config --system core.longpaths true
+        git config --system core.longpaths true
 
     # -------------------------------------------------
-    # Checkout UE4 Custom Engine
+    # Checkout Engine
     # -------------------------------------------------
-    - name: Checkout UE4 Custom Engine
+    - name: Checkout UE4 Engine
       uses: actions/checkout@v4
       with:
         repository: GapingPixel/UnrealEngineVite-PhysX
@@ -35,24 +47,25 @@ jobs:
         token: ${{ secrets.UE_PAT }}
 
     # -------------------------------------------------
-    # Map UE4 to drive X: (avoid long path issues)
+    # Map to X Drive
     # -------------------------------------------------
     - name: Map UE4 to drive X
       shell: cmd
-      run: |
-        subst X: "%GITHUB_WORKSPACE%\ue"
+      run: subst X: "%GITHUB_WORKSPACE%\ue"
 
     # -------------------------------------------------
-    # Cache GitDependencies
+    # Cache GitDependencies + ThirdParty
     # -------------------------------------------------
-    - name: Cache UE4 Dependencies
+    - name: Cache GitDependencies
       uses: actions/cache@v4
       with:
-        path: ue\.git\ue4-gitdeps
-        key: ue4-gitdeps-4.27
+        path: |
+          ue\.git\ue4-gitdeps
+          ue\Engine\Binaries\ThirdParty
+        key: gitdeps-4.27
 
     # -------------------------------------------------
-    # Sync UE4 Dependencies (Windows only)
+    # Sync Dependencies (only if needed)
     # -------------------------------------------------
     - name: Sync UE4 Dependencies
       shell: cmd
@@ -69,6 +82,17 @@ jobs:
           --threads=16
 
     # -------------------------------------------------
+    # Cache Engine Build
+    # -------------------------------------------------
+    - name: Cache Engine Build
+      uses: actions/cache@v4
+      with:
+        path: |
+          ue\Engine\Intermediate
+          ue\Engine\Binaries
+        key: ${{ env.ENGINE_CACHE_KEY }}
+
+    # -------------------------------------------------
     # Generate Project Files
     # -------------------------------------------------
     - name: Generate Project Files
@@ -78,9 +102,9 @@ jobs:
         GenerateProjectFiles.bat
 
     # -------------------------------------------------
-    # Checkout Game Project
+    # Checkout Project
     # -------------------------------------------------
-    - name: Checkout Project
+    - name: Checkout Game Project
       uses: actions/checkout@v4
       with:
         repository: ViteStudio-Tech/ueVite-ThirdPersonGAS-Example
@@ -88,63 +112,74 @@ jobs:
         lfs: true
 
     # -------------------------------------------------
-    # Build Game Target ONLY (Minimal Engine Build)
+    # Cache Project Build
     # -------------------------------------------------
-    - name: Build Game
+    - name: Cache Project Build
+      uses: actions/cache@v4
+      with:
+        path: |
+          project\**\Intermediate
+          project\**\Binaries
+        key: ${{ env.PROJECT_CACHE_KEY }}
+
+    # -------------------------------------------------
+    # Cache DerivedDataCache (Huge speed boost)
+    # -------------------------------------------------
+    - name: Cache DerivedDataCache
+      uses: actions/cache@v4
+      with:
+        path: |
+          ue\Engine\DerivedDataCache
+          project\**\DerivedDataCache
+        key: ${{ env.DDC_CACHE_KEY }}
+
+    # -------------------------------------------------
+    # Build Game
+    # -------------------------------------------------
+    - name: Build Game Target
       shell: powershell
       run: |
+        $config = "${{ github.event.inputs.buildConfig }}"
+        if ([string]::IsNullOrWhiteSpace($config)) {
+          $config = "Development"
+        }
+
         $uproject = "$env:GITHUB_WORKSPACE\project\ActionRPG - Vite\ActionRPG.uproject"
+
         if (!(Test-Path $uproject)) {
             Write-Error "UPROJECT NOT FOUND!"
             exit 1
         }
-        Write-Host "Building minimal engine + game target..."
+
+        Write-Host "Building configuration: $config"
+
         & "X:\Engine\Build\BatchFiles\Build.bat" `
           ActionRPG `
           Win64 `
-          Development `
+          $config `
           -Project="$uproject" `
-          -NoDebugInfo `
-          -NoHotReload
+          -NoHotReload `
+          -NoDebugInfo
+
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
         Write-Host "Build completed successfully."
 
     # -------------------------------------------------
-    # Find and Print Build Output (Recursive Search)
+    # Locate Build Output
     # -------------------------------------------------
-    - name: Find Build Output
+    - name: Locate Build Output
       shell: powershell
       run: |
         $root = "$env:GITHUB_WORKSPACE\project"
-
-        Write-Host "Searching for .exe files..."
-        $exes = Get-ChildItem -Path $root -Recurse -Filter *.exe -ErrorAction SilentlyContinue
-
-        if ($exes.Count -eq 0) {
-            Write-Warning "No EXE files found!"
-        } else {
-            Write-Host "Found executables:"
-            $exes | ForEach-Object { Write-Host $_.FullName }
-        }
-
-        Write-Host "Full project directory tree:"
-        Get-ChildItem -Path $root -Recurse
+        Write-Host "Searching for built executables..."
+        Get-ChildItem -Path $root -Recurse -Filter *.exe
 
     # -------------------------------------------------
-    # Upload Entire Project Binaries (Safe Fallback)
+    # Upload Artifacts
     # -------------------------------------------------
     - name: Upload Build Artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: MinimalGameBuild
+        name: UE4-Build-${{ github.event.inputs.buildConfig }}
         path: project\**\Binaries\**
-    # -------------------------------------------------
-    # Upload Build Artifacts
-    # -------------------------------------------------
-    - name: Upload Build Artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: MinimalGameBuild
-        path: |
-          $(Get-Content "$env:GITHUB_WORKSPACE\binaries.txt")
-          $(Get-Content "$env:GITHUB_WORKSPACE\saved.txt")
