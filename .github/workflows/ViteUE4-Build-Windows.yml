@@ -142,8 +142,24 @@ jobs:
           project\**\DerivedDataCache
         key: ${{ env.DDC_CACHE_KEY }}
 
+# -------------------------------------------------
+# Build UE4 Editor (required for cooking)
+# -------------------------------------------------
+    - name: Build UE4 Editor
+      shell: powershell
+      run: |
+        Write-Host "Building UE4Editor..."
+        & "X:\Engine\Build\BatchFiles\Build.bat" `
+          UE4Editor `
+          Win64 `
+          Development `
+          -NoHotReload `
+          -NoDebugInfo
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        Write-Host "UE4Editor build completed."
+
     # -------------------------------------------------
-    # Build Game Target Only (no editor)
+    # Build Game Target Only
     # -------------------------------------------------
     - name: Build Game Target
       shell: powershell
