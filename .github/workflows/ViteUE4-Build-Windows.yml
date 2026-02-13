@@ -184,7 +184,6 @@ jobs:
           -serverconfig="$config" `
           -cook `
           -allmaps `
-          -build `
           -stage `
           -pak `
           -archive `
