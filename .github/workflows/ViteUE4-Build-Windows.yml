@@ -186,7 +186,6 @@ jobs:
           -stage `
           -pak `
           -archive `
-          -skipbuild `
           -archivedirectory="$outputDir"
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         Write-Host "Packaging completed successfully."
