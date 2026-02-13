@@ -31,12 +31,13 @@ jobs:
         git config --system core.longpaths true
 
     # -------------------------------------------------
-    # Install VC++ Runtime
+    # Install all VC++ Runtimes for compatablity and DirectX to maybe fix a runtime issue.
     # -------------------------------------------------
     - name: Install VC++ Runtime
       shell: powershell
       run: |
-        choco install vcredist140 -y
+        choco install vcredist-all -y 
+        choco install directx -y 
 
     # -------------------------------------------------
     # Checkout Engine
@@ -145,9 +146,26 @@ jobs:
           ${{ runner.os }}-ddc-
 
     # -------------------------------------------------
+    # Check UE4 Editor Cache
+    # -------------------------------------------------
+
+
+
+    - name: Check if UE4Editor exists
+      id: check_editor
+      shell: powershell
+      run: |
+        if (Test-Path "X:\Engine\Binaries\Win64\UE4Editor-Cmd.exe") {
+          echo "exists=true" >> $env:GITHUB_OUTPUT
+        } else {
+          echo "exists=false" >> $env:GITHUB_OUTPUT
+        }
+
+    # -------------------------------------------------
     # Build UE4 Editor (required for cooking)
     # -------------------------------------------------
     - name: Build UE4 Editor
+      if: steps.check_editor.outputs.exists == 'false'
       shell: powershell
       run: |
         Write-Host "Building UE4Editor..."
@@ -159,7 +177,6 @@ jobs:
           -NoDebugInfo
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         Write-Host "UE4Editor build completed."
-
     # -------------------------------------------------
     # Build Game Target
     # -------------------------------------------------
