@@ -35,7 +35,9 @@ jobs:
           -Name "LongPathsEnabled" -Value 1 -PropertyType DWORD -Force
         git config --system core.longpaths true
 
-
+    # -------------------------------------------------
+    # Install VC++ Runtime
+    # -------------------------------------------------
     - name: Install VC++ Runtime
       shell: powershell
       run: |
@@ -59,6 +61,20 @@ jobs:
       shell: cmd
       run: |
         subst X: "%GITHUB_WORKSPACE%\ue"
+
+    # -------------------------------------------------
+    # Restore Engine Cache FIRST
+    # -------------------------------------------------
+    - name: Restore Engine Build Cache
+      uses: actions/cache@v4
+      with:
+        path: |
+          ue\Engine\Intermediate
+          ue\Engine\Binaries
+        key: ${{ env.ENGINE_CACHE_KEY }}
+        restore-keys: |
+          ${{ runner.os }}-ue4-4.27-
+
     # -------------------------------------------------
     # Cache GitDependencies + ThirdParty
     # -------------------------------------------------
@@ -88,25 +104,14 @@ jobs:
           --threads=16
 
     # -------------------------------------------------
-    # Cache Engine Build
+    # Generate Project Files (necessary for build)
     # -------------------------------------------------
-    - name: Cache Engine Build
-      uses: actions/cache@v4
-      with:
-        path: |
-          ue\Engine\Intermediate
-          ue\Engine\Binaries
-        key: ${{ env.ENGINE_CACHE_KEY }}
+    - name: Generate Project Files
+      shell: cmd
+      run: cd /d X:\ && GenerateProjectFiles.bat
 
     # -------------------------------------------------
-    # Generate Project Files
-    # -------------------------------------------------
-    #- name: Generate Project Files
-    #  shell: cmd
-    #  run: cd /d X:\ && GenerateProjectFiles.bat
-
-    # -------------------------------------------------
-    # Checkout Project
+    # Checkout Game Project
     # -------------------------------------------------
     - name: Checkout Game Project
       uses: actions/checkout@v4
@@ -138,21 +143,16 @@ jobs:
         key: ${{ env.DDC_CACHE_KEY }}
 
     # -------------------------------------------------
-    # Build Game (Development/Shipping)
+    # Build Game Target Only (no editor)
     # -------------------------------------------------
     - name: Build Game Target
       shell: powershell
       run: |
         $config = "${{ github.event.inputs.buildConfig }}"
-        if ([string]::IsNullOrWhiteSpace($config)) {
-          $config = "Development"
-        }
-
+        if ([string]::IsNullOrWhiteSpace($config)) { $config = "Development" }
         $uproject = "$env:GITHUB_WORKSPACE\project\ActionRPG - Vite\ActionRPG.uproject"
         if (!(Test-Path $uproject)) { Write-Error "UPROJECT NOT FOUND!"; exit 1 }
-
         Write-Host "Building configuration: $config"
-
         & "X:\Engine\Build\BatchFiles\Build.bat" `
           ActionRPG `
           Win64 `
@@ -160,13 +160,11 @@ jobs:
           -Project="$uproject" `
           -NoHotReload `
           -NoDebugInfo
-
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
         Write-Host "Build completed successfully."
 
     # -------------------------------------------------
-    # Package for WindowsNoEditor (Full Shipping Layout)
+    # Package WindowsNoEditor (skip building editor)
     # -------------------------------------------------
     - name: Package WindowsNoEditor
       shell: powershell
@@ -187,12 +185,13 @@ jobs:
           -stage `
           -pak `
           -archive `
+          -skipbuild `
           -archivedirectory="$outputDir"
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         Write-Host "Packaging completed successfully."
-    
+
     # -------------------------------------------------
-    # Upload Full Packaged Game
+    # Upload Packaged Game
     # -------------------------------------------------
     - name: Upload Packaged Game
       uses: actions/upload-artifact@v4
