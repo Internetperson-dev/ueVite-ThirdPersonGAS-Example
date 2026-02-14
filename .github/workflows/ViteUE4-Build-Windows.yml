@@ -19,7 +19,6 @@ jobs:
     runs-on: windows-2019
 
     steps:
-
     # -------------------------------------------------
     # Enable Long Paths
     # -------------------------------------------------
@@ -31,7 +30,7 @@ jobs:
         git config --system core.longpaths true
 
     # -------------------------------------------------
-    # Install VC++ + DirectX
+    # Install VC++ Runtime & DirectX
     # -------------------------------------------------
     - name: Install VC++ Runtime
       shell: powershell
@@ -51,7 +50,7 @@ jobs:
         token: ${{ secrets.UE_PAT }}
 
     # -------------------------------------------------
-    # Map Engine to X Drive
+    # Map UE4 to drive X
     # -------------------------------------------------
     - name: Map UE4 to drive X
       shell: cmd
@@ -71,7 +70,7 @@ jobs:
         key: ${{ runner.os }}-ue4-engine-4.27-${{ hashFiles('ue/Engine/Source/**', 'ue/Engine/Build/**', 'ue/Engine/Plugins/**', 'ue/Engine/*.Target.cs', 'ue/Engine/*.cs') }}
         restore-keys: |
           ${{ runner.os }}-ue4-engine-4.27-
-      
+
     # -------------------------------------------------
     # Cache UE4 Dependencies
     # -------------------------------------------------
@@ -86,7 +85,7 @@ jobs:
         key: ${{ runner.os }}-ue4-deps-4.27
 
     # -------------------------------------------------
-    # Sync UE4 Dependencies
+    # Sync Engine Dependencies
     # -------------------------------------------------
     - name: Sync UE4 Dependencies
       shell: cmd
@@ -103,45 +102,7 @@ jobs:
           --threads=16
 
     # -------------------------------------------------
-    # Check if CLI Editor Already Exists
-    # -------------------------------------------------
-    - name: Check if UE4Editor-Cmd exists
-      id: check_editor
-      shell: powershell
-      run: |
-        if (Test-Path "X:\Engine\Binaries\Win64\UE4Editor-Cmd.exe") {
-          echo "exists=true" >> $env:GITHUB_OUTPUT
-        } else {
-          echo "exists=false" >> $env:GITHUB_OUTPUT
-        }
-
-    # -------------------------------------------------
-    # Generate Project Files (only if editor missing)
-    # -------------------------------------------------
-    - name: Generate Project Files
-      if: steps.check_editor.outputs.exists == 'false'
-      shell: cmd
-      run: cd /d X:\ && GenerateProjectFiles.bat
-
-    # -------------------------------------------------
-    # Build UE4 Editor (only if missing)
-    # -------------------------------------------------
-    - name: Build UE4Editor
-      if: steps.check_editor.outputs.exists == 'false'
-      shell: powershell
-      run: |
-        Write-Host "Building UE4Editor-Cmd..."
-        & "X:\Engine\Build\BatchFiles\Build.bat" `
-          UE4Editor `
-          Win64 `
-          Development `
-          -NoHotReload `
-          -NoDebugInfo
-        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-        Write-Host "UE4Editor-Cmd build completed."
-
-    # -------------------------------------------------
-    # Checkout Game Project
+    # Checkout Game Project (before generating project files!)
     # -------------------------------------------------
     - name: Checkout Game Project
       uses: actions/checkout@v4
@@ -162,7 +123,7 @@ jobs:
         key: ${{ runner.os }}-project-${{ hashFiles('project/Source/**', 'project/*.uproject') }}
         restore-keys: |
           ${{ runner.os }}-project-
-      
+
     # -------------------------------------------------
     # Cache DerivedDataCache
     # -------------------------------------------------
@@ -177,23 +138,53 @@ jobs:
           ${{ runner.os }}-ddc-
 
     # -------------------------------------------------
-    # Build Game Target
+    # Generate Project Files (after checkout)
+    # -------------------------------------------------
+    - name: Generate Project Files
+      shell: cmd
+      run: cd /d X:\ && GenerateProjectFiles.bat
+
+    # -------------------------------------------------
+    # Check if UE4Editor exists
+    # -------------------------------------------------
+    - name: Check if UE4Editor exists
+      id: check_editor
+      shell: powershell
+      run: |
+        if (Test-Path "X:\Engine\Binaries\Win64\UE4Editor-Cmd.exe") {
+          echo "exists=true" >> $env:GITHUB_OUTPUT
+        } else {
+          echo "exists=false" >> $env:GITHUB_OUTPUT
+        }
+
+    # -------------------------------------------------
+    # Build UE4 Editor (required for cooking)
+    # -------------------------------------------------
+    - name: Build UE4 Editor
+      if: steps.check_editor.outputs.exists == 'false'
+      shell: powershell
+      run: |
+        Write-Host "Building UE4Editor-Cmd..."
+        & "X:\Engine\Build\BatchFiles\Build.bat" `
+          UE4Editor `
+          Win64 `
+          Development `
+          -NoHotReload `
+          -NoDebugInfo
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        Write-Host "UE4Editor-Cmd build completed."
+
+    # -------------------------------------------------
+    # Build Game Target (includes RTXGI plugin)
     # -------------------------------------------------
     - name: Build Game Target
       shell: powershell
       run: |
         $config = "${{ github.event.inputs.buildConfig }}"
         if ([string]::IsNullOrWhiteSpace($config)) { $config = "Development" }
-
         $uproject = "$env:GITHUB_WORKSPACE\project\ActionRPG - Vite\ActionRPG.uproject"
-
-        if (!(Test-Path $uproject)) {
-          Write-Error "UPROJECT NOT FOUND!"
-          exit 1
-        }
-
+        if (!(Test-Path $uproject)) { Write-Error "UPROJECT NOT FOUND!"; exit 1 }
         Write-Host "Building configuration: $config"
-
         & "X:\Engine\Build\BatchFiles\Build.bat" `
           ActionRPG `
           Win64 `
@@ -201,25 +192,20 @@ jobs:
           -Project="$uproject" `
           -NoHotReload `
           -NoDebugInfo
-
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
         Write-Host "Build completed successfully."
 
     # -------------------------------------------------
-    # Package WindowsNoEditor
+    # Package WindowsNoEditor (includes cooked RTXGI plugin)
     # -------------------------------------------------
     - name: Package WindowsNoEditor
       shell: powershell
       run: |
         $config = "${{ github.event.inputs.buildConfig }}"
         if ([string]::IsNullOrWhiteSpace($config)) { $config = "Development" }
-
         $uproject = "$env:GITHUB_WORKSPACE\project\ActionRPG - Vite\ActionRPG.uproject"
         $outputDir = "$env:GITHUB_WORKSPACE\project\release"
-
         Write-Host "Packaging WindowsNoEditor to $outputDir with configuration: '$config' ..."
-
         & "X:\Engine\Build\BatchFiles\RunUAT.bat" BuildCookRun `
           -project="$uproject" `
           -noP4 `
@@ -232,11 +218,8 @@ jobs:
           -stage `
           -pak `
           -archive `
-          -clean `
           -archivedirectory="$outputDir"
-
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
         Write-Host "Packaging completed successfully."
 
     # -------------------------------------------------
