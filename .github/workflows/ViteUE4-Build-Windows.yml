@@ -19,27 +19,32 @@ jobs:
     runs-on: windows-2019
 
     steps:
+
     # -------------------------------------------------
-    # Enable Windows long paths
+    # Enable Long Paths
     # -------------------------------------------------
     - name: Enable Windows long paths
       shell: powershell
       run: |
-        New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" `
-          -Name "LongPathsEnabled" -Value 1 -PropertyType DWORD -Force
+        New-ItemProperty `
+          -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" `
+          -Name "LongPathsEnabled" `
+          -Value 1 `
+          -PropertyType DWORD `
+          -Force
         git config --system core.longpaths true
 
     # -------------------------------------------------
-    # Install VC++ Runtime & DirectX
+    # Install VC++ + DirectX
     # -------------------------------------------------
     - name: Install VC++ Runtime
       shell: powershell
       run: |
-        choco install vcredist-all -y 
-        choco install directx -y 
+        choco install vcredist-all -y
+        choco install directx -y
 
     # -------------------------------------------------
-    # Checkout Custom UE4 Engine
+    # Checkout UE4 Engine
     # -------------------------------------------------
     - name: Checkout UE4 Engine
       uses: actions/checkout@v4
@@ -50,26 +55,24 @@ jobs:
         token: ${{ secrets.UE_PAT }}
 
     # -------------------------------------------------
-    # Map UE4 to drive X
+    # Map UE4 to X:
     # -------------------------------------------------
-    - name: Map UE4 to drive X
+    - name: Map UE4 to X
       shell: cmd
       run: |
         subst X: "%GITHUB_WORKSPACE%\ue"
 
     # -------------------------------------------------
-    # Restore Engine Build Cache
+    # Cache UE4 Engine Build
     # -------------------------------------------------
-    - name: Restore Engine Build Cache
+    - name: Cache UE4 Engine
       uses: actions/cache@v4
       with:
         path: |
           ue\Engine\Binaries
           ue\Engine\Intermediate
           ue\Engine\Saved
-        key: ${{ runner.os }}-ue4-engine-4.27-${{ hashFiles('ue/Engine/Source/**', 'ue/Engine/Build/**', 'ue/Engine/Plugins/**', 'ue/Engine/*.Target.cs', 'ue/Engine/*.cs') }}
-        restore-keys: |
-          ${{ runner.os }}-ue4-engine-4.27-
+        key: ue4-engine-4.27
 
     # -------------------------------------------------
     # Cache UE4 Dependencies
@@ -82,10 +85,10 @@ jobs:
           ue\Engine\Binaries\ThirdParty
           ue\Engine\Source\ThirdParty
           ue\Engine\Extras
-        key: ${{ runner.os }}-ue4-deps-4.27
+        key: ue4-deps-4.27
 
     # -------------------------------------------------
-    # Sync Engine Dependencies
+    # Sync UE4 Dependencies
     # -------------------------------------------------
     - name: Sync UE4 Dependencies
       shell: cmd
@@ -100,6 +103,13 @@ jobs:
           --exclude=WinRT ^
           --exclude=HTML5 ^
           --threads=16
+
+    # -------------------------------------------------
+    # Generate Project Files
+    # -------------------------------------------------
+    - name: Generate Project Files
+      shell: cmd
+      run: cd /d X:\ && GenerateProjectFiles.bat
 
     # -------------------------------------------------
     # Checkout Game Project
@@ -120,53 +130,55 @@ jobs:
         path: |
           project\Binaries
           project\Intermediate
-        key: ${{ runner.os }}-project-${{ hashFiles('project/Source/**', 'project/*.uproject') }}
-        restore-keys: |
-          ${{ runner.os }}-project-
+        key: project-build-v1
 
     # -------------------------------------------------
     # Cache DerivedDataCache
     # -------------------------------------------------
-    - name: Cache DerivedDataCache
+    - name: Cache DDC
       uses: actions/cache@v4
       with:
         path: |
           ue\Engine\DerivedDataCache
           project\Saved\DerivedDataCache
-        key: ${{ runner.os }}-ddc-${{ hashFiles('project/Content/**') }}
-        restore-keys: |
-          ${{ runner.os }}-ddc-
+        key: ddc-v1
 
     # -------------------------------------------------
-    # Generate Project Files
+    # Build UE4 Editor (Engine)
     # -------------------------------------------------
-    - name: Generate Project Files
-      shell: cmd
-      run: cd /d X:\ && GenerateProjectFiles.bat
-
-    # -------------------------------------------------
-    # Build Full UE4 Editor (All Engine Plugins)
-    # -------------------------------------------------
-    - name: Build UE4 Editor (Full Engine + Plugins)
+    - name: Build UE4 Editor
       shell: powershell
       run: |
-        Write-Host "Building UE4Editor with all engine plugins..."
         & "X:\Engine\Build\BatchFiles\Build.bat" `
           UE4Editor `
           Win64 `
           Development `
-          -AllModules `
-          -AllPlugins `
-          -ForceBuildPlugins `
           -NoHotReload `
-          -NoDebugInfo `
-          -WaitMutex
-
+          -NoDebugInfo
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-        Write-Host "Full engine + editor build completed successfully."
 
     # -------------------------------------------------
-    # Build Game Target (includes RTXGI plugin)
+    # Build RTXGI Plugin (CRITICAL FIX)
+    # -------------------------------------------------
+    - name: Build RTXGI Plugin
+      shell: powershell
+      run: |
+        $uproject = "$env:GITHUB_WORKSPACE\project\ActionRPG - Vite\ActionRPG.uproject"
+        $plugin = "$env:GITHUB_WORKSPACE\project\ActionRPG - Vite\Plugins\RTXGI\RTXGI.uplugin"
+
+        & "X:\Engine\Build\BatchFiles\Build.bat" `
+          UE4Editor `
+          Win64 `
+          Development `
+          -Project="$uproject" `
+          -Plugin="$plugin" `
+          -NoHotReload `
+          -NoDebugInfo
+
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+    # -------------------------------------------------
+    # Build Game Target
     # -------------------------------------------------
     - name: Build Game Target
       shell: powershell
@@ -175,9 +187,7 @@ jobs:
         if ([string]::IsNullOrWhiteSpace($config)) { $config = "Development" }
 
         $uproject = "$env:GITHUB_WORKSPACE\project\ActionRPG - Vite\ActionRPG.uproject"
-        if (!(Test-Path $uproject)) { Write-Error "UPROJECT NOT FOUND!"; exit 1 }
 
-        Write-Host "Building game target ($config)..."
         & "X:\Engine\Build\BatchFiles\Build.bat" `
           ActionRPG `
           Win64 `
@@ -187,7 +197,6 @@ jobs:
           -NoDebugInfo
 
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-        Write-Host "Game build completed successfully."
 
     # -------------------------------------------------
     # Package WindowsNoEditor
@@ -199,9 +208,8 @@ jobs:
         if ([string]::IsNullOrWhiteSpace($config)) { $config = "Development" }
 
         $uproject = "$env:GITHUB_WORKSPACE\project\ActionRPG - Vite\ActionRPG.uproject"
-        $outputDir = "$env:GITHUB_WORKSPACE\project\release"
+        $output = "$env:GITHUB_WORKSPACE\project\release"
 
-        Write-Host "Packaging WindowsNoEditor ($config)..."
         & "X:\Engine\Build\BatchFiles\RunUAT.bat" BuildCookRun `
           -project="$uproject" `
           -noP4 `
@@ -214,11 +222,36 @@ jobs:
           -stage `
           -pak `
           -archive `
-          -archivedirectory="$outputDir" `
-          -AdditionalCookerOptions="-forceenableplugins=RTXGI"
+          -archivedirectory="$output"
 
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-        Write-Host "Packaging completed successfully."
+
+    # -------------------------------------------------
+    # Copy Logs into Workspace (FIX)
+    # -------------------------------------------------
+    - name: Collect Logs
+      if: always()
+      shell: powershell
+      run: |
+        New-Item -ItemType Directory -Force `
+          "$env:GITHUB_WORKSPACE\project\Saved\Logs" | Out-Null
+
+        Copy-Item `
+          "X:\Engine\Programs\AutomationTool\Saved\Logs\*" `
+          "$env:GITHUB_WORKSPACE\project\Saved\Logs" `
+          -Recurse `
+          -Force `
+          -ErrorAction SilentlyContinue
+
+    # -------------------------------------------------
+    # Upload Logs
+    # -------------------------------------------------
+    - name: Upload Logs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: UE4-Logs
+        path: project\Saved\Logs\**
 
     # -------------------------------------------------
     # Upload Packaged Game
@@ -228,16 +261,3 @@ jobs:
       with:
         name: UE4-WindowsNoEditor-${{ github.event.inputs.buildConfig }}
         path: project\release\**\WindowsNoEditor\**
-
-    # -------------------------------------------------
-    # Upload UE Logs
-    # -------------------------------------------------
-    - name: Upload UE Logs
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: UE4-Logs
-        path: |
-          X:\Engine\Programs\AutomationTool\Saved\Logs\**
-          X:\Engine\Programs\AutomationTool\Saved\Cook-*.txt
-          project\Saved\Logs\**
