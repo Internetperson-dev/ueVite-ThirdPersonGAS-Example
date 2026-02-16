@@ -157,6 +157,21 @@ jobs:
           -NoDebugInfo
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+
+        # -------------------------------------------------
+        # Build ShaderCompileWorker (REQUIRED)
+        # -------------------------------------------------
+        - name: Build ShaderCompileWorker
+          shell: powershell
+          run: |
+            & "X:\Engine\Build\BatchFiles\Build.bat" `
+              ShaderCompileWorker `
+              Win64 `
+              Development `
+              -NoDebugInfo
+        
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
     # -------------------------------------------------
     # Build RTXGI Plugin (CRITICAL FIX)
     # -------------------------------------------------
