@@ -191,6 +191,35 @@ jobs:
 
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+
+    # -------------------------------------------------
+    # Build Required Runtime Targets (FIX)
+    # -------------------------------------------------
+    - name: Build UE4 Runtime Targets
+      shell: powershell
+      run: |
+        $targets = @(
+          "UE4Game",
+          "UnrealPak",
+          "CrashReportClient",
+          "AutomationTool"
+        )
+
+        foreach ($t in $targets) {
+          Write-Host "Building $t..."
+          & "X:\Engine\Build\BatchFiles\Build.bat" `
+            $t `
+            Win64 `
+            Development `
+            -NoHotReload `
+            -NoDebugInfo
+
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "$t build failed"
+            exit $LASTEXITCODE
+          }
+        }
+
     # -------------------------------------------------
     # Package WindowsNoEditor
     # -------------------------------------------------
