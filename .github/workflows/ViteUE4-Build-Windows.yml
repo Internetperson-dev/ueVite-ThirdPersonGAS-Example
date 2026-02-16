@@ -206,7 +206,7 @@ jobs:
         & "X:\Engine\Build\BatchFiles\RunUAT.bat" BuildCookRun `
           -project="$uproject" `
           -noP4 `
-          -targetplatform=WindowsNoEditor `
+          -targetplatform=Win64 `
           -platform=Win64 `
           -game `
           -clientconfig="$config" `
