@@ -158,20 +158,23 @@ jobs:
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 
-        # -------------------------------------------------
-        # Build ShaderCompileWorker (REQUIRED)
-        # -------------------------------------------------
-        - name: Build ShaderCompileWorker
-          shell: powershell
-          run: |
-            & "X:\Engine\Build\BatchFiles\Build.bat" `
-              ShaderCompileWorker `
-              Win64 `
-              Development `
-              -NoDebugInfo
-        
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    # -------------------------------------------------
+    # Build ShaderCompileWorker (REQUIRED FOR COOK)
+    # -------------------------------------------------
+    - name: Build ShaderCompileWorker
+      shell: powershell
+      run: |
+        Write-Host "Building ShaderCompileWorker..."
+    
+        & "X:\Engine\Build\BatchFiles\Build.bat" `
+          ShaderCompileWorker `
+          Win64 `
+          Development `
+          -NoDebugInfo
+    
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+        Write-Host "ShaderCompileWorker build completed."
     # -------------------------------------------------
     # Build RTXGI Plugin (CRITICAL FIX)
     # -------------------------------------------------
