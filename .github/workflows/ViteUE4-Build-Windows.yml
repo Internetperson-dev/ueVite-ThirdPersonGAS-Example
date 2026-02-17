@@ -10,11 +10,19 @@ on:
         required: true
         default: Development
         type: choice
-        options: [Development, Shipping]
+        options:
+          - Development
+          - Shipping
 
 jobs:
   build:
     runs-on: windows-2019
+
+    env:
+      UE_ROOT: X:\Engine
+      PROJECT_DIR: ${{ github.workspace }}\project
+      UPROJECT: ${{ github.workspace }}\project\ActionRPG - Vite\ActionRPG.uproject
+      OUTPUT_DIR: ${{ github.workspace }}\project\release
 
     steps:
     # -------------------------------------------------
@@ -54,14 +62,15 @@ jobs:
     # -------------------------------------------------
     # Map UE4 to X:
     # -------------------------------------------------
-    - name: Map UE4 to X
+    - name: Map UE4 to X drive
       shell: cmd
       run: |
         subst X: "%GITHUB_WORKSPACE%\ue"
+
     # -------------------------------------------------
-    # Cache UE4 GitDependencies (SAFE)
+    # Cache UE4 Dependencies
     # -------------------------------------------------
-    - name: Cache UE4 Dependencies
+    - name: Cache UE4 GitDependencies
       uses: actions/cache@v4
       with:
         path: ue\.git\ue4-gitdeps
@@ -73,18 +82,19 @@ jobs:
     - name: Sync UE4 Dependencies
       shell: cmd
       run: |
-        cd /d X:\
+        X:
         Engine\Binaries\DotNET\GitDependencies.exe ^
           --exclude=Mac --exclude=Linux --exclude=Android ^
-          --exclude=IOS --exclude=TVOS --exclude=WinRT ^
-          --exclude=HTML5
+          --exclude=IOS --exclude=TVOS --exclude=WinRT --exclude=HTML5
 
     # -------------------------------------------------
     # Generate Project Files
     # -------------------------------------------------
     - name: Generate Project Files
       shell: cmd
-      run: cd /d X:\ && GenerateProjectFiles.bat
+      run: |
+        X:
+        GenerateProjectFiles.bat
 
     # -------------------------------------------------
     # Checkout Game Project
@@ -97,37 +107,44 @@ jobs:
         lfs: true
 
     # -------------------------------------------------
-    # Build Editor Tools
+    # Build Engine Tools
     # -------------------------------------------------
-    - name: Build Editor Tools
+    - name: Build Engine Tools
       shell: powershell
       run: |
-        & X:\Engine\Build\BatchFiles\Build.bat UE4Editor Win64 Development -NoHotReload -NoDebugInfo
-        & X:\Engine\Build\BatchFiles\Build.bat ShaderCompileWorker Win64 Development -NoDebugInfo
+        & $env:UE_ROOT\Build\BatchFiles\Build.bat UE4Editor Win64 Development -NoHotReload -NoDebugInfo
+        & $env:UE_ROOT\Build\BatchFiles\Build.bat ShaderCompileWorker Win64 Development -NoDebugInfo
+        & $env:UE_ROOT\Build\BatchFiles\Build.bat UnrealPak Win64 Development -NoDebugInfo
+        & $env:UE_ROOT\Build\BatchFiles\Build.bat CrashReportClient Win64 Development -NoDebugInfo
         if ($LASTEXITCODE -ne 0) { exit 1 }
 
     # -------------------------------------------------
-    # Build Runtime Tools (CRITICAL)
+    # Resolve Build Configuration
     # -------------------------------------------------
-    - name: Build Runtime Tools
+    - name: Resolve Build Configuration
       shell: powershell
       run: |
-        & X:\Engine\Build\BatchFiles\Build.bat UE4Game Win64 Development -NoDebugInfo
-        & X:\Engine\Build\BatchFiles\Build.bat UnrealPak Win64 Development -NoDebugInfo
-        & X:\Engine\Build\BatchFiles\Build.bat CrashReportClient Win64 Development -NoDebugInfo
-        if ($LASTEXITCODE -ne 0) { exit 1 }
+        $cfg = "${{ github.event.inputs.buildConfig }}"
+        if ([string]::IsNullOrEmpty($cfg)) { $cfg = "Development" }
+
+        if ($cfg -notin @("Development","Shipping")) {
+          Write-Error "Invalid build config: $cfg"
+          exit 1
+        }
+
+        echo "BUILD_CONFIG=$cfg" >> $env:GITHUB_ENV
 
     # -------------------------------------------------
-    # Build Game
+    # Build Game Target
     # -------------------------------------------------
     - name: Build Game
       shell: powershell
       run: |
-        $cfg = "${{ github.event.inputs.buildConfig }}"
-        if (!$cfg) { $cfg = "Development" }
-        $uproject = "$env:GITHUB_WORKSPACE\project\ActionRPG - Vite\ActionRPG.uproject"
-        & X:\Engine\Build\BatchFiles\Build.bat ActionRPG Win64 $cfg `
-          -Project="$uproject" -NoHotReload -NoDebugInfo
+        & $env:UE_ROOT\Build\BatchFiles\Build.bat `
+          ActionRPG Win64 $env:BUILD_CONFIG `
+          -Project="$env:UPROJECT" `
+          -NoHotReload -NoDebugInfo
+
         if ($LASTEXITCODE -ne 0) { exit 1 }
 
     # -------------------------------------------------
@@ -136,18 +153,13 @@ jobs:
     - name: Package WindowsNoEditor
       shell: powershell
       run: |
-        $cfg = "${{ github.event.inputs.buildConfig }}"
-        if (!$cfg) { $cfg = "Development" }
-        $uproject = "$env:GITHUB_WORKSPACE\project\ActionRPG - Vite\ActionRPG.uproject"
-        $out = "$env:GITHUB_WORKSPACE\project\release"
-
-        & X:\Engine\Build\BatchFiles\RunUAT.bat BuildCookRun `
-          -project="$uproject" `
+        & $env:UE_ROOT\Build\BatchFiles\RunUAT.bat BuildCookRun `
+          -project="$env:UPROJECT" `
           -noP4 `
           -platform=Win64 `
-          -clientconfig=$cfg `
+          -clientconfig=$env:BUILD_CONFIG `
           -cook -allmaps -stage -pak -archive `
-          -archivedirectory="$out"
+          -archivedirectory="$env:OUTPUT_DIR"
 
         if ($LASTEXITCODE -ne 0) { exit 1 }
 
@@ -158,7 +170,7 @@ jobs:
       if: always()
       shell: powershell
       run: |
-        mkdir project\Saved\Logs -Force | Out-Null
+        New-Item -ItemType Directory project\Saved\Logs -Force | Out-Null
         Copy-Item X:\Engine\Programs\AutomationTool\Saved\Logs\* `
           project\Saved\Logs -Recurse -Force -ErrorAction SilentlyContinue
 
@@ -178,5 +190,5 @@ jobs:
     - name: Upload Packaged Game
       uses: actions/upload-artifact@v4
       with:
-        name: UE4-WindowsNoEditor-${{ github.event.inputs.buildConfig }}
+        name: UE4-WindowsNoEditor-${{ env.BUILD_CONFIG }}
         path: project\release\**\WindowsNoEditor\**
