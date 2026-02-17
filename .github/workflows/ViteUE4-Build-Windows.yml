@@ -56,8 +56,8 @@ jobs:
     # -------------------------------------------------
     - name: Map UE4 to X
       shell: cmd
-      run: subst X: "%GITHUB_WORKSPACE%\ue"
-
+      run: |
+        subst X: "%GITHUB_WORKSPACE%\ue"
     # -------------------------------------------------
     # Cache UE4 GitDependencies (SAFE)
     # -------------------------------------------------
