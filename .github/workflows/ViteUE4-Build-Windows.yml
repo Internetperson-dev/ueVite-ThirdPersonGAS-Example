@@ -14,11 +14,10 @@ on:
 
 jobs:
   build:
-    runs-on: windows-2019 # Required for older UE4 toolchains
+    runs-on: windows-2019
     env:
       UE_ROOT: X:\
       PROJECT_DIR: ${{ github.workspace }}\project
-      # Note the escaped quotes for the space in the folder name
       UPROJECT: "${{ github.workspace }}\\project\\ActionRPG - Vite\\ActionRPG.uproject"
       OUTPUT_DIR: ${{ github.workspace }}\project\release
 
@@ -30,6 +29,8 @@ jobs:
 
       - name: Install Unreal legacy dependencies
         run: |
+          # The missing DLL is almost certainly a DirectX legacy binary
+          choco install directx --confirm -y
           choco install vcredist-all -y
           choco install windows-sdk-10-version-1903-all -y
           choco install dotnetfx --version=4.6.2 -y
@@ -46,13 +47,7 @@ jobs:
         shell: cmd
         run: |
           subst X: "%GITHUB_WORKSPACE%\ue"
-        
-      - name: Cache UE Dependencies
-        uses: actions/cache@v4
-        with:
-          path: ue\.git\ue4-gitdeps
-          key: ue4-gitdeps-4.27
-
+      
       - name: Sync UE Dependencies
         shell: cmd
         run: |
@@ -81,10 +76,6 @@ jobs:
           if ([string]::IsNullOrWhiteSpace($cfg)) { $cfg = "Development" }
           echo "BUILD_CONFIG=$cfg" >> $env:GITHUB_ENV
 
-
-      # -------------------------------------------------
-      # Build Editor (REQUIRED FOR COOKING)
-      # -------------------------------------------------
       - name: Build UE4 Editor
         shell: cmd
         run: |
@@ -111,7 +102,31 @@ jobs:
             -archivedirectory="%OUTPUT_DIR%"
 
       - name: Upload Packaged Game
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: UE4-WindowsNoEditor-${{ env.BUILD_CONFIG }}
           path: project/release/WindowsNoEditor/**
+
+      # --- DIAGNOSTIC LOGGING (Runs on Failure) ---
+      - name: Collect Logs on Failure
+        if: failure()
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force -Path "build_logs"
+          # Snapshot the binary folder to check for missing DLLs
+          dir X:\Engine\Binaries\Win64\ > build_logs\binaries_list.txt
+          # Copy UAT and Cook logs
+          if (Test-Path "X:\Engine\Programs\AutomationTool\Saved\Logs") {
+            Copy-Item -Path "X:\Engine\Programs\AutomationTool\Saved\Logs\*" -Destination "build_logs\" -Recurse
+          }
+          if (Test-Path "X:\Engine\Programs\AutomationTool\Saved\Cook*.txt") {
+            Copy-Item -Path "X:\Engine\Programs\AutomationTool\Saved\Cook*.txt" -Destination "build_logs\"
+          }
+
+      - name: Upload Error Logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Build-Failure-Diagnostics
+          path: build_logs/
