@@ -16,7 +16,7 @@ on:
 
 jobs:
   build:
-    runs-on: windows-2019
+    runs-on: blacksmith-2vcpu-windows-2025
 
     env:
       UE_ROOT: X:\Engine
@@ -153,16 +153,29 @@ jobs:
     - name: Package WindowsNoEditor
       shell: powershell
       run: |
-        & $env:UE_ROOT\Build\BatchFiles\RunUAT.bat BuildCookRun `
-          -project="$env:UPROJECT" `
-          -noP4 `
-          -platform=Win64 `
-          -clientconfig=$env:BUILD_CONFIG `
-          -cook -allmaps -stage -pak -archive `
-          -archivedirectory="$env:OUTPUT_DIR"
-
+        $Config = $env:BUILD_CONFIG
+        if ([string]::IsNullOrEmpty($Config)) {
+          Write-Error "BUILD_CONFIG is not set"
+          exit 1
+        }
+    
+        Write-Host "Packaging with config: $Config"
+    
+        $UAT = "$env:UE_ROOT\Build\BatchFiles\RunUAT.bat"
+        $Project = "$env:UPROJECT"
+        $OutDir = "$env:OUTPUT_DIR"
+    
+        & cmd.exe /c `
+          "`"$UAT`" BuildCookRun ^
+            -project=`"$Project`" ^
+            -noP4 ^
+            -platform=Win64 ^
+            -clientconfig=$Config ^
+            -cook -allmaps -stage -pak -archive ^
+            -archivedirectory=`"$OutDir`""
+    
         if ($LASTEXITCODE -ne 0) { exit 1 }
-
+    
     # -------------------------------------------------
     # Collect Logs
     # -------------------------------------------------
