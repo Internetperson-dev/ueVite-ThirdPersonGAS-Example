@@ -6,166 +6,100 @@ on:
   workflow_dispatch:
     inputs:
       buildConfig:
-        description: Build Configuration
+        description: 'Build Configuration'
         required: true
-        default: Development
+        default: 'Development'
         type: choice
         options: [Development, Shipping]
 
 jobs:
   build:
-    runs-on: windows-2019
-
+    runs-on: windows-2019 # Required for older UE4 toolchains
     env:
-      UE_ROOT: X:\Engine
+      UE_ROOT: X:\
       PROJECT_DIR: ${{ github.workspace }}\project
-      UPROJECT: ${{ github.workspace }}\project\ActionRPG - Vite\ActionRPG.uproject
+      # Note the escaped quotes for the space in the folder name
+      UPROJECT: "${{ github.workspace }}\\project\\ActionRPG - Vite\\ActionRPG.uproject"
       OUTPUT_DIR: ${{ github.workspace }}\project\release
 
     steps:
-    # -------------------------------------------------
-    # Enable Long Paths
-    # -------------------------------------------------
-    - name: Enable long paths
-      shell: powershell
-      run: |
-        New-ItemProperty `
-          -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" `
-          -Name "LongPathsEnabled" `
-          -Value 1 `
-          -PropertyType DWORD `
-          -Force
-        git config --system core.longpaths true
+      - name: Enable long paths
+        run: |
+          reg add "HKLM\SYSTEM\CurrentControlSet\Control\FileSystem" /v LongPathsEnabled /t REG_DWORD /d 1 /f
+          git config --system core.longpaths true
 
-    # -------------------------------------------------
-    # Install REQUIRED Legacy Dependencies (CRITICAL)
-    # -------------------------------------------------
-    - name: Install Unreal legacy dependencies
-      shell: powershell
-      run: |
-        choco install vcredist-all -y
-        choco install windows-sdk-10-version-1903-all -y
-        choco install dotnetfx --version=4.6.2 -y
+      - name: Install Unreal legacy dependencies
+        run: |
+          choco install vcredist-all -y
+          choco install windows-sdk-10-version-1903-all -y
+          choco install dotnetfx --version=4.6.2 -y
 
-    # -------------------------------------------------
-    # Checkout UE4 Source
-    # -------------------------------------------------
-    - name: Checkout UE4 Engine
-      uses: actions/checkout@v4
-      with:
-        repository: GapingPixel/UnrealEngineVite-PhysX
-        path: ue
-        lfs: true
-        token: ${{ secrets.UE_PAT }}
+      - name: Checkout UE4 Engine
+        uses: actions/checkout@v4
+        with:
+          repository: GapingPixel/UnrealEngineVite-PhysX
+          path: ue
+          lfs: true
+          token: ${{ secrets.UE_PAT }}
 
-    # -------------------------------------------------
-    # Map UE to X:
-    # -------------------------------------------------
-    - name: Map UE to X drive
-      shell: cmd
-      run: |
-        subst X: "%GITHUB_WORKSPACE%\ue"
+      - name: Map UE to X drive
+        shell: cmd
+        run: subst X: "%GITHUB_WORKSPACE%\ue"
 
-    # -------------------------------------------------
-    # Cache GitDependencies
-    # -------------------------------------------------
-    - name: Cache UE Dependencies
-      uses: actions/cache@v4
-      with:
-        path: ue\.git\ue4-gitdeps
-        key: ue4-gitdeps-4.27
+      - name: Cache UE Dependencies
+        uses: actions/cache@v4
+        with:
+          path: ue\.git\ue4-gitdeps
+          key: ue4-gitdeps-4.27
 
-    # -------------------------------------------------
-    # Sync UE Dependencies
-    # -------------------------------------------------
-    - name: Sync UE Dependencies
-      shell: cmd
-      run: |
-        X:
-        Engine\Binaries\DotNET\GitDependencies.exe ^
-          --exclude=Mac --exclude=Linux --exclude=Android ^
-          --exclude=IOS --exclude=TVOS --exclude=WinRT --exclude=HTML5
+      - name: Sync UE Dependencies
+        shell: cmd
+        run: |
+          X:
+          cd \
+          Engine\Binaries\DotNET\GitDependencies.exe --exclude=Mac --exclude=Linux --exclude=Android --exclude=IOS --exclude=TVOS --exclude=WinRT --exclude=HTML5
 
-    # -------------------------------------------------
-    # Generate Project Files
-    # -------------------------------------------------
-    - name: Generate Project Files
-      shell: cmd
-      run: |
-        X:
-        GenerateProjectFiles.bat
+      - name: Generate Project Files
+        shell: cmd
+        run: |
+          X:
+          cd \
+          GenerateProjectFiles.bat
 
-    # -------------------------------------------------
-    # Prebuild AutomationTool (CRITICAL FIX)
-    # -------------------------------------------------
-    - name: Prime AutomationTool (UE4-safe)
-      shell: powershell
-      run: |
-        Write-Host "Priming AutomationTool..."
-        & X:\Engine\Build\BatchFiles\RunUAT.bat -help
-        if ($LASTEXITCODE -ne 0) { exit 1 }
-    
-    # -------------------------------------------------
-    # Checkout Game Project
-    # -------------------------------------------------
-    - name: Checkout Game Project
-      uses: actions/checkout@v4
-      with:
-        repository: ViteStudio-Tech/ueVite-ThirdPersonGAS-Example
-        path: project
-        lfs: true
+      - name: Checkout Game Project
+        uses: actions/checkout@v4
+        with:
+          repository: ViteStudio-Tech/ueVite-ThirdPersonGAS-Example
+          path: project
+          lfs: true
 
-    # -------------------------------------------------
-    # Resolve Build Config ONCE
-    # -------------------------------------------------
-    - name: Resolve Build Config
-      shell: powershell
-      run: |
-        $cfg = "${{ github.event.inputs.buildConfig }}"
-        if (-not $cfg) { $cfg = "Development" }
-        if ($cfg -notin @("Development","Shipping")) {
-          Write-Error "Invalid config $cfg"
-          exit 1
-        }
-        echo "BUILD_CONFIG=$cfg" >> $env:GITHUB_ENV
+      - name: Resolve Build Config
+        shell: powershell
+        run: |
+          $cfg = "${{ github.event.inputs.buildConfig }}"
+          if ([string]::IsNullOrWhiteSpace($cfg)) { $cfg = "Development" }
+          echo "BUILD_CONFIG=$cfg" >> $env:GITHUB_ENV
 
-    # -------------------------------------------------
-    # Build Game Target
-    # -------------------------------------------------
-    - name: Build Game
-      shell: powershell
-      run: |
-        & X:\Engine\Build\BatchFiles\Build.bat `
-          ActionRPG Win64 $env:BUILD_CONFIG `
-          -Project="$env:UPROJECT" `
-          -NoHotReload -NoDebugInfo
-        if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: Build Game
+        shell: cmd
+        run: |
+          X:
+          cd \
+          Engine\Build\BatchFiles\Build.bat ActionRPG Win64 %BUILD_CONFIG% -Project="%UPROJECT%" -NoHotReload -NoDebugInfo
 
-    # -------------------------------------------------
-    # Package (CMD-SAFE AutomationTool Invocation)
-    # -------------------------------------------------
-    - name: Package WindowsNoEditor
-      shell: powershell
-      run: |
-        $cfg = $env:BUILD_CONFIG
-        $uat = "$env:UE_ROOT\Build\BatchFiles\RunUAT.bat"
-
-        & cmd.exe /c `
-          "`"$uat`" BuildCookRun ^
-            -project=`"$env:UPROJECT`" ^
-            -noP4 ^
-            -platform=Win64 ^
-            -clientconfig=$cfg ^
+      - name: Package WindowsNoEditor
+        shell: cmd
+        run: |
+          X:
+          cd \
+          Engine\Build\BatchFiles\RunUAT.bat BuildCookRun ^
+            -project="%UPROJECT%" ^
+            -noP4 -platform=Win64 -clientconfig=%BUILD_CONFIG% ^
             -cook -allmaps -stage -pak -archive ^
-            -archivedirectory=`"$env:OUTPUT_DIR`""
+            -archivedirectory="%OUTPUT_DIR%"
 
-        if ($LASTEXITCODE -ne 0) { exit 1 }
-
-    # -------------------------------------------------
-    # Upload Artifact
-    # -------------------------------------------------
-    - name: Upload Packaged Game
-      uses: actions/upload-artifact@v4
-      with:
-        name: UE4-WindowsNoEditor-${{ env.BUILD_CONFIG }}
-        path: project\release\**\WindowsNoEditor\**
+      - name: Upload Packaged Game
+        uses: actions/upload-artifact@v4
+        with:
+          name: UE4-WindowsNoEditor-${{ env.BUILD_CONFIG }}
+          path: project/release/WindowsNoEditor/**
