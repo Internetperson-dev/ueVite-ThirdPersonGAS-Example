@@ -10,13 +10,11 @@ on:
         required: true
         default: Development
         type: choice
-        options:
-          - Development
-          - Shipping
+        options: [Development, Shipping]
 
 jobs:
   build:
-    runs-on: blacksmith-2vcpu-windows-2025
+    runs-on: windows-2019
 
     env:
       UE_ROOT: X:\Engine
@@ -28,7 +26,7 @@ jobs:
     # -------------------------------------------------
     # Enable Long Paths
     # -------------------------------------------------
-    - name: Enable Windows long paths
+    - name: Enable long paths
       shell: powershell
       run: |
         New-ItemProperty `
@@ -40,16 +38,17 @@ jobs:
         git config --system core.longpaths true
 
     # -------------------------------------------------
-    # Install Runtime Dependencies
+    # Install REQUIRED Legacy Dependencies (CRITICAL)
     # -------------------------------------------------
-    - name: Install VC++ + DirectX
+    - name: Install Unreal legacy dependencies
       shell: powershell
       run: |
         choco install vcredist-all -y
-        choco install directx -y
+        choco install windows-sdk-10-version-1903-all -y
+        choco install dotnetfx --version=4.6.2 -y
 
     # -------------------------------------------------
-    # Checkout UE4 Engine
+    # Checkout UE4 Source
     # -------------------------------------------------
     - name: Checkout UE4 Engine
       uses: actions/checkout@v4
@@ -60,26 +59,26 @@ jobs:
         token: ${{ secrets.UE_PAT }}
 
     # -------------------------------------------------
-    # Map UE4 to X:
+    # Map UE to X:
     # -------------------------------------------------
-    - name: Map UE4 to X drive
+    - name: Map UE to X drive
       shell: cmd
       run: |
         subst X: "%GITHUB_WORKSPACE%\ue"
 
     # -------------------------------------------------
-    # Cache UE4 Dependencies
+    # Cache GitDependencies
     # -------------------------------------------------
-    - name: Cache UE4 GitDependencies
+    - name: Cache UE Dependencies
       uses: actions/cache@v4
       with:
         path: ue\.git\ue4-gitdeps
         key: ue4-gitdeps-4.27
 
     # -------------------------------------------------
-    # Sync UE4 Dependencies
+    # Sync UE Dependencies
     # -------------------------------------------------
-    - name: Sync UE4 Dependencies
+    - name: Sync UE Dependencies
       shell: cmd
       run: |
         X:
@@ -97,6 +96,16 @@ jobs:
         GenerateProjectFiles.bat
 
     # -------------------------------------------------
+    # Prebuild AutomationTool (CRITICAL FIX)
+    # -------------------------------------------------
+    - name: Build AutomationTool
+      shell: powershell
+      run: |
+        & X:\Engine\Build\BatchFiles\Build.bat `
+          AutomationTool Win64 Development -NoDebugInfo
+        if ($LASTEXITCODE -ne 0) { exit 1 }
+
+    # -------------------------------------------------
     # Checkout Game Project
     # -------------------------------------------------
     - name: Checkout Game Project
@@ -107,31 +116,17 @@ jobs:
         lfs: true
 
     # -------------------------------------------------
-    # Build Engine Tools
+    # Resolve Build Config ONCE
     # -------------------------------------------------
-    - name: Build Engine Tools
-      shell: powershell
-      run: |
-        & $env:UE_ROOT\Build\BatchFiles\Build.bat UE4Editor Win64 Development -NoHotReload -NoDebugInfo
-        & $env:UE_ROOT\Build\BatchFiles\Build.bat ShaderCompileWorker Win64 Development -NoDebugInfo
-        & $env:UE_ROOT\Build\BatchFiles\Build.bat UnrealPak Win64 Development -NoDebugInfo
-        & $env:UE_ROOT\Build\BatchFiles\Build.bat CrashReportClient Win64 Development -NoDebugInfo
-        if ($LASTEXITCODE -ne 0) { exit 1 }
-
-    # -------------------------------------------------
-    # Resolve Build Configuration
-    # -------------------------------------------------
-    - name: Resolve Build Configuration
+    - name: Resolve Build Config
       shell: powershell
       run: |
         $cfg = "${{ github.event.inputs.buildConfig }}"
-        if ([string]::IsNullOrEmpty($cfg)) { $cfg = "Development" }
-
+        if (-not $cfg) { $cfg = "Development" }
         if ($cfg -notin @("Development","Shipping")) {
-          Write-Error "Invalid build config: $cfg"
+          Write-Error "Invalid config $cfg"
           exit 1
         }
-
         echo "BUILD_CONFIG=$cfg" >> $env:GITHUB_ENV
 
     # -------------------------------------------------
@@ -140,65 +135,34 @@ jobs:
     - name: Build Game
       shell: powershell
       run: |
-        & $env:UE_ROOT\Build\BatchFiles\Build.bat `
+        & X:\Engine\Build\BatchFiles\Build.bat `
           ActionRPG Win64 $env:BUILD_CONFIG `
           -Project="$env:UPROJECT" `
           -NoHotReload -NoDebugInfo
-
         if ($LASTEXITCODE -ne 0) { exit 1 }
 
     # -------------------------------------------------
-    # Package WindowsNoEditor
+    # Package (CMD-SAFE AutomationTool Invocation)
     # -------------------------------------------------
     - name: Package WindowsNoEditor
       shell: powershell
       run: |
-        $Config = $env:BUILD_CONFIG
-        if ([string]::IsNullOrEmpty($Config)) {
-          Write-Error "BUILD_CONFIG is not set"
-          exit 1
-        }
-    
-        Write-Host "Packaging with config: $Config"
-    
-        $UAT = "$env:UE_ROOT\Build\BatchFiles\RunUAT.bat"
-        $Project = "$env:UPROJECT"
-        $OutDir = "$env:OUTPUT_DIR"
-    
+        $cfg = $env:BUILD_CONFIG
+        $uat = "$env:UE_ROOT\Build\BatchFiles\RunUAT.bat"
+
         & cmd.exe /c `
-          "`"$UAT`" BuildCookRun ^
-            -project=`"$Project`" ^
+          "`"$uat`" BuildCookRun ^
+            -project=`"$env:UPROJECT`" ^
             -noP4 ^
             -platform=Win64 ^
-            -clientconfig=$Config ^
+            -clientconfig=$cfg ^
             -cook -allmaps -stage -pak -archive ^
-            -archivedirectory=`"$OutDir`""
-    
+            -archivedirectory=`"$env:OUTPUT_DIR`""
+
         if ($LASTEXITCODE -ne 0) { exit 1 }
-    
-    # -------------------------------------------------
-    # Collect Logs
-    # -------------------------------------------------
-    - name: Collect Logs
-      if: always()
-      shell: powershell
-      run: |
-        New-Item -ItemType Directory project\Saved\Logs -Force | Out-Null
-        Copy-Item X:\Engine\Programs\AutomationTool\Saved\Logs\* `
-          project\Saved\Logs -Recurse -Force -ErrorAction SilentlyContinue
 
     # -------------------------------------------------
-    # Upload Logs
-    # -------------------------------------------------
-    - name: Upload Logs
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: UE4-Logs
-        path: project\Saved\Logs\**
-
-    # -------------------------------------------------
-    # Upload Packaged Game
+    # Upload Artifact
     # -------------------------------------------------
     - name: Upload Packaged Game
       uses: actions/upload-artifact@v4
