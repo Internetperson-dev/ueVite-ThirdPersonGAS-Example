@@ -22,6 +22,14 @@ jobs:
       OUTPUT_DIR: ${{ github.workspace }}\project\release
 
     steps:
+      - name: Maximize Disk Space
+        shell: powershell
+        run: |
+          Write-Host "Cleaning up disk space..."
+          Remove-Item -Recurse -Force "C:\Program Files\dotnet" -ErrorAction SilentlyContinue
+          Remove-Item -Recurse -Force "C:\Program Files (x86)\Microsoft SDKs" -ErrorAction SilentlyContinue
+          Remove-Item -Recurse -Force "C:\android" -ErrorAction SilentlyContinue
+
       - name: Enable long paths
         run: |
           reg add "HKLM\SYSTEM\CurrentControlSet\Control\FileSystem" /v LongPathsEnabled /t REG_DWORD /d 1 /f
@@ -29,7 +37,6 @@ jobs:
 
       - name: Install Unreal legacy dependencies
         run: |
-          # The missing DLL is almost certainly a DirectX legacy binary
           choco install directx --confirm -y
           choco install vcredist-all -y
           choco install windows-sdk-10-version-1903-all -y
@@ -45,9 +52,8 @@ jobs:
 
       - name: Map UE to X drive
         shell: cmd
-        run: |
-          subst X: "%GITHUB_WORKSPACE%\ue"
-      
+        run: subst X: "%GITHUB_WORKSPACE%\ue"
+
       - name: Sync UE Dependencies
         shell: cmd
         run: |
@@ -76,11 +82,12 @@ jobs:
           if ([string]::IsNullOrWhiteSpace($cfg)) { $cfg = "Development" }
           echo "BUILD_CONFIG=$cfg" >> $env:GITHUB_ENV
 
-      - name: Build UE4 Editor
+      - name: Build UE4 Editor (Including RTXGI)
         shell: cmd
         run: |
           X:
           cd \
+          :: Building the Editor target ensures all enabled plugins are compiled
           Engine\Build\BatchFiles\Build.bat UE4Editor Win64 Development -WaitMutex -NoHotReload
 
       - name: Build Game
@@ -90,43 +97,19 @@ jobs:
           cd \
           Engine\Build\BatchFiles\Build.bat ActionRPG Win64 %BUILD_CONFIG% -Project="%UPROJECT%" -NoHotReload -NoDebugInfo
 
-
-          - name: Pre-Cook Cleanup & Plugin Fix
-          shell: powershell
-          run: |
-            # If RTXGI is missing from the engine but requested by the project, 
-            # this script disables it so the cook can proceed.
-            $uproj = Get-Content "${{ env.UPROJECT }}" -Raw | ConvertFrom-Json
-            if ($uproj.Plugins) {
-                $uproj.Plugins | Where-Object { $_.Name -eq "RTXGI" } | ForEach-Object { $_.Enabled = $false }
-                $uproj | ConvertTo-Json -Depth 10 | Set-Content "${{ env.UPROJECT }}"
-                Write-Host "Disabled RTXGI plugin to prevent Cook failure."
-            }
-
       - name: Package WindowsNoEditor
         shell: cmd
         run: |
           X:
           cd \
-          # We add -iterativecooking and -Compressed to help with speed/space
-          # We also ensure -nocompileeditor is used since we just built it
+          :: Added -nullrhi to prevent GPU initialization crashes
+          :: Added -nocompile to skip redundant compilation checks
           Engine\Build\BatchFiles\RunUAT.bat BuildCookRun ^
             -project="%UPROJECT%" ^
             -noP4 -platform=Win64 -clientconfig=%BUILD_CONFIG% ^
             -cook -allmaps -stage -pak -archive ^
             -archivedirectory="%OUTPUT_DIR%" ^
-            -unattended -UTF8Output -ni
-
-      - name: Package WindowsNoEditor
-        shell: cmd
-        run: |
-          X:
-          cd \
-          Engine\Build\BatchFiles\RunUAT.bat BuildCookRun ^
-            -project="%UPROJECT%" ^
-            -noP4 -platform=Win64 -clientconfig=%BUILD_CONFIG% ^
-            -cook -allmaps -stage -pak -archive ^
-            -archivedirectory="%OUTPUT_DIR%"
+            -unattended -nullrhi -UTF8Output -ni -nocompile
 
       - name: Upload Packaged Game
         if: success()
@@ -135,15 +118,12 @@ jobs:
           name: UE4-WindowsNoEditor-${{ env.BUILD_CONFIG }}
           path: project/release/WindowsNoEditor/**
 
-      # --- DIAGNOSTIC LOGGING (Runs on Failure) ---
       - name: Collect Logs on Failure
         if: failure()
         shell: powershell
         run: |
           New-Item -ItemType Directory -Force -Path "build_logs"
-          # Snapshot the binary folder to check for missing DLLs
           dir X:\Engine\Binaries\Win64\ > build_logs\binaries_list.txt
-          # Copy UAT and Cook logs
           if (Test-Path "X:\Engine\Programs\AutomationTool\Saved\Logs") {
             Copy-Item -Path "X:\Engine\Programs\AutomationTool\Saved\Logs\*" -Destination "build_logs\" -Recurse
           }
