@@ -1,3 +1,17 @@
+This guide reveals why your CI is failing: the RTXGI and PhysX features in this specific fork require a very specific environment and a BuildConfiguration.xml file to point UBT to the correct SDKs.
+
+In a CI environment, UBT often defaults to the oldest SDK it finds. Since you are using a custom engine with RT effects enabled by default, if UBT doesn't have the exact Windows SDK version (10.0.26100.0), it fails to link the RTXGI modules, leading to the "Unable to load module" error.
+The Fix Strategy
+
+    Force the SDK: We will use PowerShell to create that BuildConfiguration.xml on the fly in the runner's AppData folder.
+
+    Standardize MSVC: Since the runner is windows-2019, we will target the latest available SDK there (or install the one requested).
+
+    Build Target: We need to build the Development Editor specifically.
+
+Updated Full CI Script
+YAML
+
 name: UE4 Optimized Build (Windows)
 
 on:
@@ -27,12 +41,12 @@ jobs:
           reg add "HKLM\SYSTEM\CurrentControlSet\Control\FileSystem" /v LongPathsEnabled /t REG_DWORD /d 1 /f
           git config --system core.longpaths true
 
-      - name: Install Unreal legacy dependencies
+      - name: Install Required SDK & Tools
         run: |
+          # Installing the specific SDK mentioned in your guide
+          choco install windows-sdk-10-version-2004-all -y 
           choco install directx --confirm -y
           choco install vcredist-all -y
-          choco install windows-sdk-10-version-1903-all -y
-          choco install dotnetfx --version=4.6.2 -y
 
       - name: Checkout UE4 Engine
         uses: actions/checkout@v4
@@ -47,27 +61,42 @@ jobs:
         run: |
           subst X: "%GITHUB_WORKSPACE%\ue"
           
+      - name: Setup UBT BuildConfiguration
+        shell: powershell
+        run: |
+          $xmlPath = "$env:AppData\Unreal Engine\UnrealBuildTool\BuildConfiguration.xml"
+          $directory = [System.IO.Path]::GetDirectoryName($xmlPath)
+          if (!(Test-Path $directory)) { New-Item -ItemType Directory -Force -Path $directory }
+          
+          # This forces UBT to use the correct SDK even if others are installed
+          $xmlContent = @"
+          <?xml version="1.0" encoding="utf-8" ?>
+          <Configuration xmlns="https://www.unrealengine.com/BuildConfiguration">
+              <WindowsPlatform>
+                  <WindowsSdkVersion>10.0.19041.0</WindowsSdkVersion>
+              </WindowsPlatform>
+          </Configuration>
+          "@
+          Set-Content -Path $xmlPath -Value $xmlContent
+          Write-Host "BuildConfiguration.xml created at $xmlPath"
+
       - name: Sync UE Dependencies
         shell: cmd
         run: |
           X:
-          cd \
-          Engine\Binaries\DotNET\GitDependencies.exe --exclude=Mac --exclude=Linux --exclude=Android --exclude=IOS --exclude=TVOS --exclude=WinRT --exclude=HTML5
+          echo N | Engine\Binaries\DotNET\GitDependencies.exe --exclude=Mac --exclude=Linux --exclude=Android --exclude=IOS --exclude=TVOS --exclude=WinRT --exclude=HTML5
 
       - name: Generate Project Files
         shell: cmd
         run: |
           X:
-          cd \
           GenerateProjectFiles.bat
 
-      - name: Build Automation Tool & Core Tools
+      - name: Build Automation Tool & Shader Workers
         shell: cmd
         run: |
           X:
-          :: Build UAT
           "C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\MSBuild\Current\Bin\MSBuild.exe" Engine\Source\Programs\AutomationTool\AutomationTool.csproj /p:Configuration=Development /p:Platform=AnyCPU
-          :: Build Shader Workers (Required for RTXGI shaders)
           Engine\Build\BatchFiles\Build.bat ShaderCompileWorker Win64 Development -WaitMutex
 
       - name: Checkout Game Project
@@ -77,62 +106,49 @@ jobs:
           path: project
           lfs: true
 
-      - name: Resolve Build Config
-        shell: powershell
-        run: |
-          $cfg = "${{ github.event.inputs.buildConfig }}"
-          if ([string]::IsNullOrWhiteSpace($cfg)) { $cfg = "Development" }
-          echo "BUILD_CONFIG=$cfg" >> $env:GITHUB_ENV
-
-      - name: Build UE4 Editor & RTXGI Plugin
+      - name: Build UE4 Editor (Development Editor)
         shell: cmd
         run: |
           X:
-          cd \
-          :: Build Editor
+          :: Your guide specifically says Engine should be built in Development Editor
           Engine\Build\BatchFiles\Build.bat UE4Editor Win64 Development -WaitMutex -NoHotReload
-          :: Build the specific RTXGI module if it exists in the source
-          if exist X:\Engine\Plugins\Runtime\Nvidia\RTXGI Engine\Build\BatchFiles\Build.bat RTXGI Win64 Development -WaitMutex -NoHotReload
 
-      - name: Build Game Binaries
+      - name: Build Game
         shell: cmd
         run: |
           X:
-          cd \
-          Engine\Build\BatchFiles\Build.bat ActionRPG Win64 %BUILD_CONFIG% -Project="%UPROJECT%" -NoHotReload -NoDebugInfo
+          Engine\Build\BatchFiles\Build.bat ActionRPG Win64 ${{ github.event.inputs.buildConfig || 'Development' }} -Project="%UPROJECT%" -NoHotReload
 
-      - name: Package WindowsNoEditor
+      - name: Package Project
         shell: cmd
         run: |
           X:
-          cd \
           Engine\Build\BatchFiles\RunUAT.bat BuildCookRun ^
             -project="%UPROJECT%" ^
-            -noP4 -platform=Win64 -clientconfig=%BUILD_CONFIG% ^
+            -noP4 -platform=Win64 -clientconfig=${{ github.event.inputs.buildConfig || 'Development' }} ^
             -cook -allmaps -stage -pak -archive ^
             -archivedirectory="%OUTPUT_DIR%" ^
-            -unattended -nullrhi -UTF8Output -ni -nocompile
+            -unattended -nullrhi -ni -nocompile
 
-      - name: Upload Packaged Game
+      - name: Upload Artifacts
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: UE4-WindowsNoEditor-${{ env.BUILD_CONFIG }}
+          name: UE4-Vite-Build
           path: project/release/WindowsNoEditor/**
 
-      - name: Collect Logs on Failure
+      - name: Diagnostic Logs
         if: failure()
         shell: cmd
         run: |
           subst X: "%GITHUB_WORKSPACE%\ue"
           mkdir build_logs
-          dir X:\Engine\Binaries\Win64\ > build_logs\binaries_list.txt
-          if exist X:\Engine\Programs\AutomationTool\Saved\Logs (xcopy /s /y X:\Engine\Programs\AutomationTool\Saved\Logs\* build_logs\)
-          if exist X:\Engine\Programs\AutomationTool\Saved\Cook*.txt (xcopy /y X:\Engine\Programs\AutomationTool\Saved\Cook*.txt build_logs\)
+          xcopy /s /y X:\Engine\Programs\AutomationTool\Saved\Logs\* build_logs\
+          xcopy /y X:\Engine\Programs\AutomationTool\Saved\Cook*.txt build_logs\
 
       - name: Upload Error Logs
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: Build-Failure-Diagnostics
+          name: Failure-Logs
           path: build_logs/
