@@ -61,6 +61,15 @@ jobs:
           cd \
           GenerateProjectFiles.bat
 
+      # --- CRITICAL MISSING STEP: Build AutomationTool ---
+      - name: Build Unreal Automation Tool (UAT)
+        shell: cmd
+        run: |
+          X:
+          cd \Engine\Source\Programs\AutomationTool
+          :: Build UAT using MSBuild (standard for UE4 source builds)
+          "C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\MSBuild\Current\Bin\MSBuild.exe" AutomationTool.csproj /p:Configuration=Development /p:Platform=AnyCPU
+
       - name: Checkout Game Project
         uses: actions/checkout@v4
         with:
@@ -74,6 +83,15 @@ jobs:
           $cfg = "${{ github.event.inputs.buildConfig }}"
           if ([string]::IsNullOrWhiteSpace($cfg)) { $cfg = "Development" }
           echo "BUILD_CONFIG=$cfg" >> $env:GITHUB_ENV
+
+      - name: Build Core Engine Tools
+        shell: cmd
+        run: |
+          X:
+          cd \
+          :: ShaderCompileWorker is required for cooking/RTXGI
+          Engine\Build\BatchFiles\Build.bat ShaderCompileWorker Win64 Development -WaitMutex
+          Engine\Build\BatchFiles\Build.bat UnrealPak Win64 Development -WaitMutex
 
       - name: Build UE4 Editor
         shell: cmd
@@ -112,14 +130,11 @@ jobs:
         if: failure()
         shell: cmd
         run: |
-          :: Re-map drive X: because the environment is fresh for this step
           subst X: "%GITHUB_WORKSPACE%\ue"
           mkdir build_logs
           dir X:\Engine\Binaries\Win64\ > build_logs\binaries_list.txt
-          
-          :: Check if RTXGI source actually exists
+          dir X:\Engine\Binaries\DotNET\ > build_logs\dotnet_binaries_list.txt
           if exist X:\Engine\Plugins\Runtime\Nvidia\RTXGI (echo RTXGI_FOUND > build_logs\rtxgi_check.txt) else (echo RTXGI_MISSING > build_logs\rtxgi_check.txt)
-          
           if exist X:\Engine\Programs\AutomationTool\Saved\Logs (xcopy /s /y X:\Engine\Programs\AutomationTool\Saved\Logs\* build_logs\)
           if exist X:\Engine\Programs\AutomationTool\Saved\Cook*.txt (xcopy /y X:\Engine\Programs\AutomationTool\Saved\Cook*.txt build_logs\)
 
