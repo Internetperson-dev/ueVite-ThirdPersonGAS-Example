@@ -1,30 +1,3 @@
-This is a bit of a "catch-22." You want RTXGI built because it's part of your game, but the Editor is crashing during the cook because it can't find the RTXGI module.
-
-The issue is that while you are building the Editor executable, the Unreal Build Tool isn't automatically compiling the Plugin DLLs unless they are properly referenced or the plugin source is in a location where the compiler expects it.
-The Diagnosis
-
-The log shows: Unable to load module 'RTXGI' - 0 instances found.
-This means even though the code might be there, the compiled binary (.dll) for the RTXGI plugin does not exist in your Binaries/Win64 folder.
-The Fix: Explicitly Build the Plugin
-
-We need to tell the compiler to build the RTXGI target specifically before we start the cook. I've updated the script to include an explicit build command for the RTXGI module.
-YAML
-
-      - name: Build UE4 Editor and RTXGI
-        shell: cmd
-        run: |
-          X:
-          cd \
-          :: 1. Build the Editor first
-          Engine\Build\BatchFiles\Build.bat UE4Editor Win64 Development -WaitMutex -NoHotReload
-          
-          :: 2. FORCE build the RTXGI plugin specifically so the DLL exists for the cook
-          :: This assumes the plugin source is in Engine/Plugins/Runtime/Nvidia/RTXGI
-          Engine\Build\BatchFiles\Build.bat RTXGI Win64 Development -WaitMutex -NoHotReload
-
-Full Script with Plugin Compilation Fix
-YAML
-
 name: UE4 Optimized Build (Windows)
 
 on:
