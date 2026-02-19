@@ -27,13 +27,6 @@ jobs:
           reg add "HKLM\SYSTEM\CurrentControlSet\Control\FileSystem" /v LongPathsEnabled /t REG_DWORD /d 1 /f
           git config --system core.longpaths true
 
-      - name: Install Required SDK & Tools
-        run: |
-          # Installing the specific SDK mentioned in your guide
-          choco install windows-sdk-10-version-2004-all -y 
-          choco install directx --confirm -y
-          choco install vcredist-all -y
-
       - name: Checkout UE4 Engine
         uses: actions/checkout@v4
         with:
@@ -54,7 +47,7 @@ jobs:
           $directory = [System.IO.Path]::GetDirectoryName($xmlPath)
           if (!(Test-Path $directory)) { New-Item -ItemType Directory -Force -Path $directory }
           
-          # This forces UBT to use the correct SDK even if others are installed
+          # Forcing the SDK and Toolchain as per your guide
           $xmlContent = @"
           <?xml version="1.0" encoding="utf-8" ?>
           <Configuration xmlns="https://www.unrealengine.com/BuildConfiguration">
@@ -64,13 +57,13 @@ jobs:
           </Configuration>
           "@
           Set-Content -Path $xmlPath -Value $xmlContent
-          Write-Host "BuildConfiguration.xml created at $xmlPath"
 
-      - name: Sync UE Dependencies
+      - name: Sync Dependencies
         shell: cmd
         run: |
           X:
-          echo N | Engine\Binaries\DotNET\GitDependencies.exe --exclude=Mac --exclude=Linux --exclude=Android --exclude=IOS --exclude=TVOS --exclude=WinRT --exclude=HTML5
+          :: Using 'N' to skip overrides as per your guide
+          echo N | Engine\Binaries\DotNET\GitDependencies.exe --exclude=Mac --exclude=Linux --exclude=Android --exclude=IOS
 
       - name: Generate Project Files
         shell: cmd
@@ -78,7 +71,7 @@ jobs:
           X:
           GenerateProjectFiles.bat
 
-      - name: Build Automation Tool & Shader Workers
+      - name: Build UAT and Shader Workers
         shell: cmd
         run: |
           X:
@@ -92,43 +85,49 @@ jobs:
           path: project
           lfs: true
 
-      - name: Build UE4 Editor (Development Editor)
-        shell: cmd
+      - name: Resolve Build Config
+        shell: powershell
         run: |
-          X:
-          :: Your guide specifically says Engine should be built in Development Editor
-          Engine\Build\BatchFiles\Build.bat UE4Editor Win64 Development -WaitMutex -NoHotReload
+          $cfg = "${{ github.event.inputs.buildConfig }}"
+          if ([string]::IsNullOrWhiteSpace($cfg)) { $cfg = "Development" }
+          echo "BUILD_CONFIG=$cfg" >> $env:GITHUB_ENV
 
-      - name: Build Game
+      - name: Force Build RTXGI and Editor
         shell: cmd
         run: |
           X:
-          Engine\Build\BatchFiles\Build.bat ActionRPG Win64 ${{ github.event.inputs.buildConfig || 'Development' }} -Project="%UPROJECT%" -NoHotReload
+          :: 1. Specifically build the RTXGI module DLLs
+          Engine\Build\BatchFiles\Build.bat RTXGI Win64 Development -Project="%UPROJECT%" -WaitMutex
+          
+          :: 2. Build the Editor
+          Engine\Build\BatchFiles\Build.bat UE4Editor Win64 Development -Project="%UPROJECT%" -WaitMutex -NoHotReload
+
+      - name: Build Game Binaries
+        shell: cmd
+        run: |
+          X:
+          Engine\Build\BatchFiles\Build.bat ActionRPG Win64 %BUILD_CONFIG% -Project="%UPROJECT%" -NoHotReload
 
       - name: Package Project
         shell: cmd
         run: |
           X:
+          :: We remove -nocompile to let UAT double-check the RTXGI binaries
           Engine\Build\BatchFiles\RunUAT.bat BuildCookRun ^
             -project="%UPROJECT%" ^
-            -noP4 -platform=Win64 -clientconfig=${{ github.event.inputs.buildConfig || 'Development' }} ^
+            -noP4 -platform=Win64 -clientconfig=%BUILD_CONFIG% ^
             -cook -allmaps -stage -pak -archive ^
             -archivedirectory="%OUTPUT_DIR%" ^
-            -unattended -nullrhi -ni -nocompile
+            -unattended -nullrhi -ni
 
-      - name: Upload Artifacts
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: UE4-Vite-Build
-          path: project/release/WindowsNoEditor/**
-
-      - name: Diagnostic Logs
+      - name: Collect Logs on Failure
         if: failure()
         shell: cmd
         run: |
           subst X: "%GITHUB_WORKSPACE%\ue"
           mkdir build_logs
+          :: Let's see if the DLL actually exists now
+          dir X:\Engine\Plugins\Runtime\Nvidia\RTXGI\Binaries\Win64\ > build_logs\rtxgi_binaries.txt
           xcopy /s /y X:\Engine\Programs\AutomationTool\Saved\Logs\* build_logs\
           xcopy /y X:\Engine\Programs\AutomationTool\Saved\Cook*.txt build_logs\
 
@@ -136,5 +135,5 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: Failure-Logs
+          name: Failure-Diagnostics
           path: build_logs/
