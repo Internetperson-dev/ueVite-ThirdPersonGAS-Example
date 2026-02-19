@@ -60,13 +60,21 @@ jobs:
         shell: cmd
         run: |
           X:
-          echo N | Engine\Binaries\DotNET\GitDependencies.exe --exclude=Mac --exclude=Linux --exclude=Android --exclude=IOS
+          echo N | Engine\Binaries\DotNET\GitDependencies.exe --exclude=Mac --exclude=Linux --exclude=Android --exclude=IOS --exclude=TVOS
 
       - name: Generate Project Files
         shell: cmd
         run: |
           X:
           GenerateProjectFiles.bat
+
+      - name: Build Automation Tool & Workers
+        shell: cmd
+        run: |
+          X:
+          "C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\MSBuild\Current\Bin\MSBuild.exe" Engine\Source\Programs\AutomationTool\AutomationTool.csproj /p:Configuration=Development /p:Platform=AnyCPU
+          Engine\Build\BatchFiles\Build.bat ShaderCompileWorker Win64 Development -WaitMutex
+          Engine\Build\BatchFiles\Build.bat UnrealPak Win64 Development -WaitMutex
 
       - name: Checkout Game Project
         uses: actions/checkout@v4
@@ -75,65 +83,53 @@ jobs:
           path: project
           lfs: true
 
-      - name: Resolve Build Config
-        shell: powershell
-        run: |
-          $cfg = "${{ github.event.inputs.buildConfig }}"
-          if ([string]::IsNullOrWhiteSpace($cfg)) { $cfg = "Development" }
-          echo "BUILD_CONFIG=$cfg" >> $env:GITHUB_ENV
-
-      - name: Build UAT & ShaderWorkers
+      - name: Build Editor with RTXGI
         shell: cmd
         run: |
           X:
-          "C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\MSBuild\Current\Bin\MSBuild.exe" Engine\Source\Programs\AutomationTool\AutomationTool.csproj /p:Configuration=Development /p:Platform=AnyCPU
-          Engine\Build\BatchFiles\Build.bat ShaderCompileWorker Win64 Development -WaitMutex
-
-      - name: Compile RTXGI Plugin Manually
-        shell: cmd
-        run: |
-          X:
-          :: Use RunUAT to build the plugin specifically. This generates the missing DLLs.
-          Engine\Build\BatchFiles\RunUAT.bat BuildPlugin -Plugin="X:\Engine\Plugins\Runtime\Nvidia\RTXGI\RTXGI.uplugin" -Package="%TEMP%\RTXGI" -Rocket -unattended
-
-      - name: Build Editor
-        shell: cmd
-        run: |
-          X:
-          :: Now build the Editor. Since we built the plugin above, it should find the binaries.
+          :: We build the Editor target. Because RTXGI is an Engine plugin, 
+          :: UBT will discover the source and compile it into the Engine's binary folder.
           Engine\Build\BatchFiles\Build.bat UE4Editor Win64 Development -Project="%UPROJECT%" -WaitMutex -NoHotReload
 
       - name: Build Game Binaries
         shell: cmd
         run: |
           X:
-          Engine\Build\BatchFiles\Build.bat ActionRPG Win64 %BUILD_CONFIG% -Project="%UPROJECT%" -NoHotReload
+          Engine\Build\BatchFiles\Build.bat ActionRPG Win64 ${{ github.event.inputs.buildConfig || 'Development' }} -Project="%UPROJECT%" -WaitMutex -NoHotReload
 
       - name: Package Project
         shell: cmd
         run: |
           X:
-          :: We use -nullrhi and ensure we aren't skipping the build in case DLLs need a final link
+          :: -nullrhi is essential here because your fork has RT enabled by default.
+          :: Without a GPU, the Cooker will crash unless we use the Null RHI.
           Engine\Build\BatchFiles\RunUAT.bat BuildCookRun ^
             -project="%UPROJECT%" ^
-            -noP4 -platform=Win64 -clientconfig=%BUILD_CONFIG% ^
+            -noP4 -platform=Win64 -clientconfig=${{ github.event.inputs.buildConfig || 'Development' }} ^
             -cook -allmaps -stage -pak -archive ^
             -archivedirectory="%OUTPUT_DIR%" ^
-            -unattended -nullrhi -ni
+            -unattended -nullrhi -ni -nocompileeditor
 
-      - name: Collect Logs on Failure
+      - name: Upload Artifacts
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ActionRPG-Vite-Build
+          path: project/release/WindowsNoEditor/**
+
+      - name: Diagnostic Logs
         if: failure()
         shell: cmd
         run: |
           subst X: "%GITHUB_WORKSPACE%\ue"
           mkdir build_logs
-          dir X:\Engine\Plugins\Runtime\Nvidia\RTXGI\Binaries\Win64\ > build_logs\rtxgi_binaries_list.txt
+          dir X:\Engine\Binaries\Win64\UE4Editor-RTXGI* /s > build_logs\rtxgi_dll_location.txt
           xcopy /s /y X:\Engine\Programs\AutomationTool\Saved\Logs\* build_logs\
-          xcopy /y X:\Engine\Programs\AutomationTool\Saved\Cook*.txt build_logs\
+          if exist X:\Engine\Programs\AutomationTool\Saved\Cook*.txt xcopy /y X:\Engine\Programs\AutomationTool\Saved\Cook*.txt build_logs\
 
       - name: Upload Error Logs
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: Failure-Diagnostics
+          name: Failure-Logs
           path: build_logs/
